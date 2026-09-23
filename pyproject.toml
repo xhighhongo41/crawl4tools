@@ -1,0 +1,52 @@
+[project]
+name = "crawl4tools"
+version = "0.0.1"
+description = "Web crawler server for Open WebUI and MCP, plus a local download CLI, built on crawl4ai"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+requires-python = ">=3.11"
+authors = [{ name = "xhighhongo41" }]
+keywords = ["crawler", "crawl4ai", "open-webui", "mcp", "markdown", "scraping"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+    "Topic :: Internet :: WWW/HTTP",
+]
+dependencies = []
+
+[project.optional-dependencies]
+# Placeholder for the server extra. fastapi, uvicorn, mcp are planned to be added in v0.1.
+server = []
+
+[project.urls]
+Homepage = "https://github.com/xhighhongo41/crawl4tools"
+Repository = "https://github.com/xhighhongo41/crawl4tools"
+Issues = "https://github.com/xhighhongo41/crawl4tools/issues"
+Changelog = "https://github.com/xhighhongo41/crawl4tools/blob/main/Changelog.md"
+
+[tool.uv]
+# No buildable package exists yet in this code-free release.
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "W"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unused_ignores = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# asyncio_mode takes effect once pytest-asyncio is added as a dependency.
+asyncio_mode = "auto"
