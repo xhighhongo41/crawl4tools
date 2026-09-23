@@ -1,0 +1,36 @@
+# --- Project-internal files (never committed) ---
+/PROJECT.md
+/開発資料/
+/.patent-checker/
+/.claude/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+dist/
+build/
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- Environment / secrets ---
+.env
+.env.*
+
+# --- Playwright / crawl4ai runtime ---
+.crawl4ai/
+
+# --- OS / editors ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
