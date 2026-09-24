@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `crawl4cli` command: download one or more URLs as Markdown, HTML, PDF, screenshot, MHTML, or raw source
+- PDF transcription to Markdown; non-HTML resources such as images are saved as they are
+- Error messages by cause (HTTP status, unknown host, refused connection, timeout, missing browser) and exit codes 0/1/2
+- Proxy support (`--proxy`) with a single retry over a direct connection when the proxy fails (`--no-fallback` to disable)
+- Concurrent downloads of several URLs into a directory (`-d`, `-j`)
+- `CRAWL4CLI_*` environment variables for every option
+- Shared fetch engine (`crawl4tools.engine`) for the planned servers
+- `tools/check.sh` and `tools/release_check.sh` for development
+
 ## [0.0.1] - 2026-09-23
 
 ### Added

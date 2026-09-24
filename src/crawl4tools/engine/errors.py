@@ -135,8 +135,8 @@ class BrowserNotInstalledError(FetchError):
 
     def __str__(self) -> str:
         return (
-            "browser is not installed. Run 'crawl4ai-setup' "
-            "(or 'python -m playwright install chromium') and retry."
+            "browser is not installed. Run 'playwright install chromium' "
+            "(or 'crawl4ai-setup') and retry."
         )
 
 
