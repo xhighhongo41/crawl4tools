@@ -22,6 +22,7 @@ from crawl4tools.i18n import (
     Localized,
     LocalizedError,
     Translator,
+    format_message,
     get_translator,
     language_from_argv,
     locale_language,
@@ -270,6 +271,37 @@ def test_render_exception_shows_other_exceptions_as_they_are() -> None:
     t = FakeTranslator({"boom": "どかん"})
     assert render_exception(ValueError("boom"), t) == "boom"
     assert render_exception(OSError(13, "Permission denied"), t) == "[Errno 13] Permission denied"
+
+
+def test_format_message_translates_the_template_and_fills_params() -> None:
+    t = FakeTranslator({TOO_MANY: TOO_MANY_JA})
+    message = format_message(t, TOO_MANY, {"count": 12, "limit": 10})
+    assert message == "URL が多すぎます: 12 件(1 回あたり最大 10 件)"
+
+
+def test_format_message_keeps_format_specs() -> None:
+    message = format_message(ENGLISH, "timed out after {timeout_s:g}s", {"timeout_s": 2.5})
+    assert message == "timed out after 2.5s"
+
+
+def test_format_message_renders_localized_params_in_the_same_language() -> None:
+    inner = LocalizedError("could not resolve host: {url}", url="https://a.invalid/")
+    t = FakeTranslator(
+        {
+            "proxy failed ({error})": "プロキシに失敗しました({error})",
+            "could not resolve host: {url}": "ホスト名を解決できません: {url}",
+        }
+    )
+    message = format_message(t, "proxy failed ({error})", {"error": inner})
+    assert message == "プロキシに失敗しました(ホスト名を解決できません: https://a.invalid/)"
+
+
+def test_localized_error_renders_localized_params_in_the_same_language() -> None:
+    inner = LocalizedError("could not resolve host: {url}", url="https://a.invalid/")
+    outer = LocalizedError("proxy failed ({error})", error=inner)
+    t = FakeTranslator({"could not resolve host: {url}": "ホスト名を解決できません: {url}"})
+    assert str(outer) == "proxy failed (could not resolve host: https://a.invalid/)"
+    assert outer.render(t) == "proxy failed (ホスト名を解決できません: https://a.invalid/)"
 
 
 # --- catalogs --------------------------------------------------------------------

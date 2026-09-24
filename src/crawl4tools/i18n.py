@@ -129,6 +129,21 @@ class Localized(Protocol):
         ...
 
 
+def format_message(t: Translator, template: str, params: Mapping[str, object]) -> str:
+    """Translate ``template`` with ``t`` and fill in ``params``.
+
+    A parameter that is itself :class:`Localized` (for example a fetch error
+    quoted inside a note) is rendered with the same translator, so the whole
+    message is in one language. Other parameters are inserted as they are,
+    with the template's format specs (``{timeout_s:g}``) applied.
+    """
+    values = {
+        name: value.render(t) if isinstance(value, Localized) else value
+        for name, value in params.items()
+    }
+    return t.gettext(template).format(**values)
+
+
 class LocalizedError(Exception):
     """An exception whose message can be shown in any supported language.
 
@@ -146,7 +161,7 @@ class LocalizedError(Exception):
 
     def render(self, t: Translator) -> str:
         """Return the message with the template translated by ``t``."""
-        return t.gettext(self.template).format(**self.params)
+        return format_message(t, self.template, self.params)
 
 
 def render_exception(exc: BaseException, t: Translator) -> str:
