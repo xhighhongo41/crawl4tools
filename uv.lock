@@ -743,6 +743,7 @@ dependencies = [
     { name = "crawl4ai", extra = ["pdf"] },
     { name = "httpx" },
     { name = "mcp" },
+    { name = "pydantic" },
     { name = "pyyaml" },
 ]
 
@@ -761,6 +762,7 @@ requires-dist = [
     { name = "crawl4ai", extras = ["pdf"], specifier = ">=0.9.4,<0.10" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "mcp", specifier = ">=2.2,<3" },
+    { name = "pydantic", specifier = ">=2.12" },
     { name = "pyyaml", specifier = ">=6" },
 ]
 provides-extras = ["server"]

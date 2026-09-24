@@ -23,6 +23,7 @@ dependencies = [
     "click>=8.1",
     "httpx>=0.27",
     "mcp>=2.2,<3",
+    "pydantic>=2.12",
     "pyyaml>=6",
 ]
 
