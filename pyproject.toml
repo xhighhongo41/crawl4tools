@@ -30,7 +30,7 @@ dependencies = [
 ]
 
 [project.scripts]
-crawl4cli = "crawl4tools.cli.main:main"
+crawl4cli = "crawl4tools.cli.main:entry"
 crawl4mcp = "crawl4tools.server.mcp_main:main"
 crawl4server = "crawl4tools.server.server_main:main"
 

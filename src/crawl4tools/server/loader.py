@@ -37,6 +37,7 @@ from crawl4tools import __version__
 from crawl4tools.cli.report import error_line
 from crawl4tools.engine.models import FetchOutcome, OutputFormat
 from crawl4tools.engine.naming import dedupe_urls, validate_url
+from crawl4tools.i18n import ENGLISH
 from crawl4tools.server.mcp_server import ServerState, fetch_all
 
 logger = logging.getLogger(__name__)
@@ -158,7 +159,7 @@ def _log_skipped(outcome: FetchOutcome, url: str) -> None:
     if outcome.ok:
         logger.warning("error: no text content: %s", url)
     else:
-        logger.warning("%s", error_line(outcome))
+        logger.warning("%s", error_line(outcome, ENGLISH))
 
 
 def build_loader_app(state: ServerState, loader: LoaderSettings) -> Starlette:

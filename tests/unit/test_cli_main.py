@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import base64
+import errno
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +14,7 @@ from conftest import FakeCrawler, FakeHttp, make_result
 from crawl4tools.cli import main as main_module
 from crawl4tools.engine.fetcher import Fetcher
 from crawl4tools.engine.models import FetchOptions
+from crawl4tools.i18n import ENGLISH, LOCALE_ENV_VARS, Translator, get_translator
 
 URL = "https://example.com/"
 
@@ -324,3 +327,253 @@ def test_fit_can_be_set_by_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     result = invoke([URL, "-q"], env={"CRAWL4CLI_FIT": "1"})
     assert result.exit_code == 0
     assert result.stdout == "# Hello (fit)\n"
+
+
+# --- message language -------------------------------------------------------------
+
+JA = get_translator("ja")
+
+
+def squash(text: str) -> str:
+    """Remove every whitespace character, so help text wrapping does not matter."""
+    return "".join(text.split())
+
+
+def clear_locale(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Remove every locale variable, including the LANGUAGE=en set by conftest."""
+    for name in LOCALE_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
+
+
+def test_english_help_is_unchanged_and_lists_lang() -> None:
+    result = invoke(["--help"])
+    assert result.exit_code == 0
+    output = squash(result.output)
+    for text in [
+        "Download web pages as Markdown and other formats.",
+        "Output format.",
+        "Write the (single) fetched URL to this file instead of stdout.",
+        "Proxy URL (http, https, or socks5); e.g. socks5://host:1080.",
+        "Show the version and exit.",
+        "Language of messages: en or ja.",
+    ]:
+        assert squash(text) in output, text
+    assert "--lang [en|ja]" in result.output
+
+
+def test_japanese_help_shows_translated_texts() -> None:
+    result = CliRunner().invoke(main_module.build_command(JA), ["--help"])
+    assert result.exit_code == 0
+    output = squash(result.output)
+    for text in [
+        "Web ページを Markdown などの形式でダウンロードします。",
+        "出力形式を指定します。",
+        "取得した(1 つの)URL を標準出力ではなくこのファイルに書き込みます。",
+        "取得した URL を保存するディレクトリです。",
+        "プロキシ URL(http、https、socks5 のいずれか)です。例: socks5://host:1080。",
+        "プロキシ自体に問題があると見られる場合は、プロキシなしで再試行します。",
+        "同時に取得する URL の最大数です。",
+        "URL ごとのタイムアウト(秒)です。",
+        "Markdown に引用を付けます。",
+        "Markdown からリンクを除きます。",
+        "Markdown から画像を除きます。",
+        "進捗と note 行を表示しません。",
+        "エンジンの詳細なログを出力します。",
+        "バージョンを表示して終了します。",
+        "メッセージの言語(en または ja)です。",
+    ]:
+        assert squash(text) in output, text
+    assert "--lang [en|ja]" in result.output
+    # click's own texts stay in English.
+    assert "Usage:" in result.output
+    assert "Show this message and exit." in result.output
+    assert "Output format." not in result.output
+
+
+def test_japanese_duplicate_note_keeps_the_english_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
+    install_fetcher(monkeypatch)
+    result = invoke(["--lang", "ja", URL, URL])
+    assert result.exit_code == 0
+    assert f"note: 重複した URL を無視しました: {URL}" in result.stderr
+    assert result.stdout == "# Hello\n"
+
+
+def test_japanese_note_for_a_non_web_page(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    http = FakeHttp(lambda request: response("image/jpeg", b"\xff\xd8JPEG"))
+    install_fetcher(monkeypatch, http=http)
+    url = "https://example.com/photo"
+    result = invoke(["--lang", "ja", url, "-d", str(tmp_path)])
+    assert result.exit_code == 0
+    expected = f"note: {url}: Web ページではありません(image/jpeg)。元のファイルを保存しました"
+    assert expected in result.stderr
+    assert f"saved: {url} -> " in result.stderr
+
+
+def test_japanese_error_and_summary_lines(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    urls = [f"https://example.com/{i}" for i in range(3)]
+    handler = {
+        urls[0]: make_result(url=urls[0]),
+        urls[1]: _failing_result("net::ERR_NAME_NOT_RESOLVED"),
+        urls[2]: make_result(url=urls[2]),
+    }
+    install_fetcher(monkeypatch, crawler=FakeCrawler(handler))
+    result = invoke(["--lang", "ja", *urls, "-d", str(tmp_path)])
+    assert result.exit_code == 1
+    assert f"error: ホスト名を解決できません: {urls[1]}" in result.stderr
+    assert "done: 成功 2 件、失敗 1 件" in result.stderr
+    assert f"  failed: {urls[1]}" in result.stderr
+
+
+def test_japanese_output_with_several_urls_is_usage_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_fetcher(monkeypatch)
+    result = invoke(["--lang", "ja", URL, "https://example.com/b", "-o", "out.md"])
+    assert result.exit_code == 2
+    assert (
+        "Error: --output は URL が 1 つのときだけ使えます。"
+        "複数の URL には --output-dir を使ってください"
+    ) in result.stderr
+
+
+def _fail_to_write(*args: Any, **kwargs: Any) -> None:
+    raise OSError(errno.EACCES, "Permission denied", "/x/out.md")
+
+
+@pytest.mark.parametrize(
+    ("lang", "expected_line"),
+    [
+        ("en", "error: could not write /x/out.md: Permission denied"),
+        ("ja", "error: /x/out.md に書き込めません: Permission denied"),
+    ],
+    ids=["en", "ja"],
+)
+def test_write_failure_line(monkeypatch: pytest.MonkeyPatch, lang: str, expected_line: str) -> None:
+    install_fetcher(monkeypatch)
+    monkeypatch.setattr(main_module, "write_outcome", _fail_to_write)
+    result = invoke(["--lang", lang, URL, "-o", "/x/out.md"])
+    assert result.exit_code == 1
+    assert expected_line in result.stderr.splitlines()
+
+
+def test_language_variable_selects_japanese(monkeypatch: pytest.MonkeyPatch) -> None:
+    install_fetcher(monkeypatch)
+    result = invoke([URL, URL], env={"CRAWL4CLI_LANG": "ja"})
+    assert result.exit_code == 0
+    assert f"note: 重複した URL を無視しました: {URL}" in result.stderr
+
+
+def test_lang_option_beats_the_language_variable(monkeypatch: pytest.MonkeyPatch) -> None:
+    install_fetcher(monkeypatch)
+    result = invoke(["--lang", "en", URL, URL], env={"CRAWL4CLI_LANG": "ja"})
+    assert result.exit_code == 0
+    assert f"note: duplicate URL ignored: {URL}" in result.stderr
+
+
+def test_unsupported_lang_option_exits_2(monkeypatch: pytest.MonkeyPatch) -> None:
+    install_fetcher(monkeypatch)
+    result = invoke(["--lang", "de", URL])
+    assert result.exit_code == 2
+    assert "Invalid value for '--lang'" in result.stderr
+
+
+def test_unsupported_language_variable_exits_2(monkeypatch: pytest.MonkeyPatch) -> None:
+    install_fetcher(monkeypatch)
+    result = invoke([URL], env={"CRAWL4CLI_LANG": "de"})
+    assert result.exit_code == 2
+
+
+@pytest.mark.parametrize(
+    ("lang_value", "expected_note"),
+    [
+        ("ja_JP.UTF-8", f"note: 重複した URL を無視しました: {URL}"),
+        ("C", f"note: duplicate URL ignored: {URL}"),
+    ],
+    ids=["ja_JP", "C"],
+)
+def test_locale_chooses_the_runtime_language(
+    monkeypatch: pytest.MonkeyPatch, lang_value: str, expected_note: str
+) -> None:
+    install_fetcher(monkeypatch)
+    clear_locale(monkeypatch)
+    monkeypatch.setenv("LANG", lang_value)
+    result = invoke([URL, URL])
+    assert result.exit_code == 0
+    assert expected_note in result.stderr
+
+
+def test_japanese_invalid_url_message(monkeypatch: pytest.MonkeyPatch) -> None:
+    install_fetcher(monkeypatch)
+    result = CliRunner().invoke(main_module.build_command(JA), ["ftp://x"])
+    assert result.exit_code == 2
+    assert "Error: Invalid value for 'URLS...': http(s) の URL ではありません: ftp://x" in (
+        result.stderr
+    )
+
+
+def test_japanese_invalid_proxy_message_without_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_fetcher(monkeypatch)
+    command = main_module.build_command(JA)
+    result = CliRunner().invoke(command, [URL, "--proxy", "ftp://user:s3cr3t@proxy.example:21"])
+    assert result.exit_code == 2
+    assert (
+        "Error: Invalid value for '--proxy': "
+        "対応していないプロキシのスキームです: ftp://***@proxy.example:21"
+    ) in result.stderr
+    assert "s3cr3t" not in result.output
+
+
+# --- entry (the console script) ------------------------------------------------------
+
+
+class CommandRecorder:
+    """Stands in for build_command(): records the translator and the main() call."""
+
+    def __init__(self) -> None:
+        self.translators: list[Translator] = []
+        self.main_calls: list[dict[str, Any]] = []
+
+    def __call__(self, t: Translator) -> CommandRecorder:
+        self.translators.append(t)
+        return self
+
+    def main(self, **kwargs: Any) -> None:
+        self.main_calls.append(kwargs)
+
+
+@pytest.mark.parametrize(
+    ("argv", "env", "expected"),
+    [
+        (["--lang", "ja", URL], {}, JA),
+        (["--lang=ja", URL], {}, JA),
+        ([URL], {"CRAWL4CLI_LANG": "ja"}, JA),
+        ([URL], {"LANG": "ja_JP.UTF-8"}, JA),
+        ([URL], {}, ENGLISH),
+        ([URL], {"LANG": "C"}, ENGLISH),
+        (["--lang", "en", URL], {"CRAWL4CLI_LANG": "ja"}, ENGLISH),
+    ],
+    ids=[
+        "lang-option",
+        "lang-option-equals",
+        "variable",
+        "locale-ja",
+        "nothing-set",
+        "locale-C",
+        "option-beats-variable",
+    ],
+)
+def test_entry_builds_the_command_in_the_chosen_language(
+    monkeypatch: pytest.MonkeyPatch, argv: list[str], env: dict[str, str], expected: Translator
+) -> None:
+    clear_locale(monkeypatch)
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setattr(sys, "argv", ["crawl4cli", *argv])
+    recorder = CommandRecorder()
+    monkeypatch.setattr(main_module, "build_command", recorder)
+    main_module.entry()
+    assert len(recorder.translators) == 1
+    assert recorder.translators[0] is expected
+    assert recorder.main_calls == [{"prog_name": "crawl4cli"}]

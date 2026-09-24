@@ -19,13 +19,84 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.18.0\n"
 
+msgid ""
+"--output can only be used with a single URL; use --output-dir for several"
+" URLs"
+msgstr "--output は URL が 1 つのときだけ使えます。複数の URL には --output-dir を使ってください"
+
 #, python-brace-format
-msgid "fetch failed: {summary}: {url}"
-msgstr "取得に失敗しました: {summary}: {url}"
+msgid "duplicate URL ignored: {url}"
+msgstr "重複した URL を無視しました: {url}"
+
+#, python-brace-format
+msgid "could not write {path}: {reason}"
+msgstr "{path} に書き込めません: {reason}"
+
+msgid "Download web pages as Markdown and other formats."
+msgstr "Web ページを Markdown などの形式でダウンロードします。"
+
+msgid "Output format."
+msgstr "出力形式を指定します。"
+
+msgid "Write the (single) fetched URL to this file instead of stdout."
+msgstr "取得した(1 つの)URL を標準出力ではなくこのファイルに書き込みます。"
+
+msgid "Directory to save fetched URLs into."
+msgstr "取得した URL を保存するディレクトリです。"
+
+msgid "Proxy URL (http, https, or socks5); e.g. socks5://host:1080."
+msgstr "プロキシ URL(http、https、socks5 のいずれか)です。例: socks5://host:1080。"
+
+msgid "Retry without the proxy when the proxy itself appears to be at fault."
+msgstr "プロキシ自体に問題があると見られる場合は、プロキシなしで再試行します。"
+
+msgid "Maximum number of URLs fetched at once."
+msgstr "同時に取得する URL の最大数です。"
+
+msgid "Per-URL timeout in seconds."
+msgstr "URL ごとのタイムアウト(秒)です。"
+
+msgid "Add Markdown citations."
+msgstr "Markdown に引用を付けます。"
+
+msgid ""
+"Keep only the main content (drop menus, footers, and the like) in the "
+"Markdown."
+msgstr "Markdown に本文だけを残します(メニューやフッターなどを除きます)。"
+
+msgid "Strip links from the Markdown."
+msgstr "Markdown からリンクを除きます。"
+
+msgid "Strip images from the Markdown."
+msgstr "Markdown から画像を除きます。"
+
+msgid "Suppress progress and note lines."
+msgstr "進捗と note 行を表示しません。"
+
+msgid "Enable verbose engine logging."
+msgstr "エンジンの詳細なログを出力します。"
+
+msgid ""
+"Language of messages: en or ja. Defaults to the locale (LANGUAGE, LC_ALL,"
+" LC_MESSAGES, LANG), else en."
+msgstr ""
+"メッセージの言語(en または ja)です。省略時はロケール(LANGUAGE, LC_ALL, LC_MESSAGES, "
+"LANG)に従い、決まらなければ en です。"
+
+msgid "Show the version and exit."
+msgstr "バージョンを表示して終了します。"
 
 #, python-brace-format
 msgid "fetch failed: {url}"
 msgstr "取得に失敗しました: {url}"
+
+#, python-brace-format
+msgid "{succeeded} succeeded, {failed} failed"
+msgstr "成功 {succeeded} 件、失敗 {failed} 件"
+
+#, python-brace-format
+msgid "fetch failed: {summary}: {url}"
+msgstr "取得に失敗しました: {summary}: {url}"
 
 #, python-brace-format
 msgid "HTTP {status_code} {reason}: {url}"

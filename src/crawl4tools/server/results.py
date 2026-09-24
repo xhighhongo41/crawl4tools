@@ -17,6 +17,7 @@ from mcp.types import ImageContent, TextContent
 from crawl4tools.cli.report import error_line
 from crawl4tools.engine.models import ContentKind, FetchOutcome
 from crawl4tools.engine.naming import dedupe_urls, validate_url
+from crawl4tools.i18n import ENGLISH
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -118,7 +119,9 @@ def page_blocks(
     header_lines = _header_lines(outcome, url, multiple=multiple)
 
     if not outcome.ok:
-        return [TextContent(type="text", text=_with_header(header_lines, error_line(outcome)))]
+        return [
+            TextContent(type="text", text=_with_header(header_lines, error_line(outcome, ENGLISH)))
+        ]
 
     if outcome.text is not None:
         return [TextContent(type="text", text=_with_header(header_lines, outcome.text))]
