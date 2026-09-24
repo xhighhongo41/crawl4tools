@@ -60,6 +60,7 @@ crawl4cli --proxy http://proxy.local:8080 URL     # through a proxy
 | `--no-fallback` | Do not retry over a direct connection when the proxy fails |
 | `-j, --concurrency N` | URLs fetched at once (default: 3) |
 | `--timeout SECONDS` | Page load timeout per URL (default: 60) |
+| `--fit` | Keep only the main content (drops menus, footers, and the like); falls back to the full page if nothing is left |
 | `--citations` | Turn links into numbered references listed at the end |
 | `--no-links`, `--no-images` | Drop links or image references from the Markdown |
 | `-q, --quiet` / `-v, --verbose` | Less or more output on stderr |

@@ -610,3 +610,58 @@ def test_crawl4ai_is_not_imported_at_module_load() -> None:
         [sys.executable, "-c", code], capture_output=True, text=True, check=True
     )
     assert completed.stdout.strip() == "False"
+
+
+# --- --fit (content-filtered Markdown) ------------------------------------------
+
+
+def test_build_run_config_adds_pruning_filter_only_with_fit() -> None:
+    from crawl4ai import PruningContentFilterLXML
+
+    with_fit = build_run_config(FetchOptions(fit=True), None)
+    assert isinstance(with_fit.markdown_generator.content_filter, PruningContentFilterLXML)
+    without_fit = build_run_config(FetchOptions(), None)
+    assert without_fit.markdown_generator.content_filter is None
+
+
+async def test_fit_uses_filtered_markdown() -> None:
+    outcome, _, _ = await fetch_one(FetchOptions(fit=True))
+    assert outcome.ok
+    assert outcome.text == "# Hello (fit)"
+    assert outcome.notes == []
+
+
+async def test_fit_falls_back_to_full_page_when_filter_keeps_nothing() -> None:
+    crawler = FakeCrawler(make_result(fit_markdown="  \n"))
+    outcome, _, _ = await fetch_one(FetchOptions(fit=True), crawler=crawler)
+    assert outcome.ok
+    assert outcome.text == "# Hello"
+    assert any("content filter kept nothing" in note for note in outcome.notes)
+
+
+async def test_fit_falls_back_to_full_page_when_filter_fails() -> None:
+    crawler = FakeCrawler(make_result(fit_markdown="Error generating fit markdown: boom"))
+    outcome, _, _ = await fetch_one(FetchOptions(fit=True), crawler=crawler)
+    assert outcome.ok
+    assert outcome.text == "# Hello"
+    assert any("content filter failed" in note and "boom" in note for note in outcome.notes)
+
+
+async def test_fit_with_citations_converts_links_of_filtered_markdown() -> None:
+    crawler = FakeCrawler(
+        make_result(fit_markdown="Read [the docs](https://docs.example/guide) now.")
+    )
+    outcome, _, _ = await fetch_one(FetchOptions(fit=True, citations=True), crawler=crawler)
+    assert outcome.ok
+    assert outcome.text is not None
+    body, _, references = outcome.text.partition("\n\n")
+    assert "(https://docs.example/guide)" not in body
+    assert "https://docs.example/guide" in references
+
+
+async def test_fit_does_not_apply_to_other_formats() -> None:
+    crawler = FakeCrawler(make_result(html="<html><body>full</body></html>"))
+    outcome, _, _ = await fetch_one(
+        FetchOptions(fit=True, format=OutputFormat.HTML), crawler=crawler
+    )
+    assert outcome.text == "<html><body>full</body></html>"

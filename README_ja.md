@@ -60,6 +60,7 @@ crawl4cli --proxy http://proxy.local:8080 URL     # プロキシ経由
 | `--no-fallback` | プロキシ障害時に直接通信で再試行しない |
 | `-j, --concurrency N` | 同時に取得するURL数(既定: 3) |
 | `--timeout SECONDS` | URLごとのページ読み込みタイムアウト(既定: 60) |
+| `--fit` | 本文だけを残す(メニューやフッターなどを除く)。何も残らなかった場合はページ全体を出力 |
 | `--citations` | リンクを番号付き参照にし、末尾に一覧を付ける |
 | `--no-links`, `--no-images` | Markdown からリンクや画像参照を除く |
 | `-q, --quiet` / `-v, --verbose` | 標準エラーへの出力を減らす/増やす |

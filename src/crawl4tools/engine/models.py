@@ -65,6 +65,7 @@ class FetchOptions:
     citations: bool = False
     ignore_links: bool = False
     ignore_images: bool = False
+    fit: bool = False
     verbose: bool = False
 
 

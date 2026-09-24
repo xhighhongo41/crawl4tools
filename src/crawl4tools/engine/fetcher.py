@@ -69,7 +69,12 @@ def default_crawler_factory(options: FetchOptions) -> AbstractAsyncContextManage
 
 def build_run_config(options: FetchOptions, proxy: str | None) -> Any:
     """Build the crawl4ai ``CrawlerRunConfig`` for one browser attempt."""
-    from crawl4ai import CacheMode, CrawlerRunConfig, DefaultMarkdownGenerator
+    from crawl4ai import (
+        CacheMode,
+        CrawlerRunConfig,
+        DefaultMarkdownGenerator,
+        PruningContentFilterLXML,
+    )
 
     return CrawlerRunConfig(
         cache_mode=CacheMode.BYPASS,
@@ -80,13 +85,26 @@ def build_run_config(options: FetchOptions, proxy: str | None) -> Any:
         screenshot=options.format is OutputFormat.SCREENSHOT,
         capture_mhtml=options.format is OutputFormat.MHTML,
         markdown_generator=DefaultMarkdownGenerator(
+            content_filter=PruningContentFilterLXML() if options.fit else None,
             options={
                 "ignore_links": options.ignore_links,
                 "ignore_images": options.ignore_images,
                 "body_width": 0,
-            }
+            },
         ),
     )
+
+
+# crawl4ai reports a failing content filter by returning this text as the content.
+_FIT_ERROR_PREFIX = "Error generating fit markdown:"
+
+
+def _citations(markdown: str, base_url: str) -> str:
+    """Turn inline links of *markdown* into numbered references, crawl4ai style."""
+    from crawl4ai import DefaultMarkdownGenerator
+
+    body, references = DefaultMarkdownGenerator().convert_links_to_citations(markdown, base_url)
+    return f"{body}\n\n{references}"
 
 
 def _describe(exc: BaseException) -> str:
@@ -333,13 +351,7 @@ class Fetcher:
         )
         html: str = getattr(result, "html", None) or ""
         if fmt is OutputFormat.MARKDOWN:
-            markdown = result.markdown
-            if self._options.citations:
-                outcome.text = (
-                    f"{markdown.markdown_with_citations}\n\n{markdown.references_markdown}"
-                )
-            else:
-                outcome.text = markdown.raw_markdown
+            outcome.text = self._markdown_text(result.markdown, outcome)
         elif fmt is OutputFormat.HTML:
             outcome.text = html
         elif fmt is OutputFormat.MHTML:
@@ -364,6 +376,25 @@ class Fetcher:
             outcome.data = html.encode("utf-8")
             outcome.suggested_extension = ".html"
         return outcome
+
+    def _markdown_text(self, markdown: Any, outcome: FetchOutcome) -> str:
+        """Pick the full or content-filtered Markdown, with citations if requested."""
+        options = self._options
+        if options.fit:
+            fit: str = getattr(markdown, "fit_markdown", None) or ""
+            if fit.startswith(_FIT_ERROR_PREFIX):
+                reason = fit[len(_FIT_ERROR_PREFIX) :].strip()
+                outcome.notes.append(f"content filter failed ({reason}); saved the full page")
+            elif not fit.strip():
+                outcome.notes.append("content filter kept nothing; saved the full page")
+            elif options.citations:
+                return _citations(fit, outcome.final_url or outcome.url)
+            else:
+                return fit
+        if options.citations:
+            return f"{markdown.markdown_with_citations}\n\n{markdown.references_markdown}"
+        text: str = markdown.raw_markdown
+        return text
 
     async def _resource_outcome(self, url: str, probed: ProbeResult) -> FetchOutcome:
         """Assemble an outcome for a non-HTML resource downloaded over HTTP."""

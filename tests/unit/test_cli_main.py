@@ -310,3 +310,17 @@ def test_image_is_saved_as_jpg_with_a_note(monkeypatch: pytest.MonkeyPatch, tmp_
     assert files[0].suffix == ".jpg"
     assert files[0].read_bytes() == b"\xff\xd8JPEG"
     assert "not a web page (image/jpeg); saved the original file" in result.stderr
+
+
+def test_fit_flag_prints_filtered_markdown(monkeypatch: pytest.MonkeyPatch) -> None:
+    install_fetcher(monkeypatch)
+    result = invoke([URL, "-q", "--fit"])
+    assert result.exit_code == 0
+    assert result.stdout == "# Hello (fit)\n"
+
+
+def test_fit_can_be_set_by_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    install_fetcher(monkeypatch)
+    result = invoke([URL, "-q"], env={"CRAWL4CLI_FIT": "1"})
+    assert result.exit_code == 0
+    assert result.stdout == "# Hello (fit)\n"

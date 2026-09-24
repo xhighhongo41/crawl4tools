@@ -28,6 +28,7 @@ def make_result(**overrides: Any) -> SimpleNamespace:
         raw_markdown=overrides.pop("raw_markdown", "# Hello"),
         markdown_with_citations=overrides.pop("markdown_with_citations", "# Hello [1]"),
         references_markdown=overrides.pop("references_markdown", "## References\n[1]: x"),
+        fit_markdown=overrides.pop("fit_markdown", "# Hello (fit)"),
     )
     fields: dict[str, Any] = {
         "success": True,

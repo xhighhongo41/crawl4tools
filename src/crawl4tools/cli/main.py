@@ -149,6 +149,13 @@ def _validate_proxy(_ctx: click.Context, _param: click.Parameter, value: str | N
     "--citations", "citations", is_flag=True, default=False, help="Add Markdown citations."
 )
 @click.option(
+    "--fit",
+    "fit",
+    is_flag=True,
+    default=False,
+    help="Keep only the main content (drop menus, footers, and the like) in the Markdown.",
+)
+@click.option(
     "--no-links", "no_links", is_flag=True, default=False, help="Strip links from the Markdown."
 )
 @click.option(
@@ -182,6 +189,7 @@ def main(
     concurrency: int,
     timeout: float,
     citations: bool,
+    fit: bool,
     no_links: bool,
     no_images: bool,
     quiet: bool,
@@ -209,6 +217,7 @@ def main(
         fallback=fallback,
         timeout_s=timeout,
         citations=citations,
+        fit=fit,
         ignore_links=no_links,
         ignore_images=no_images,
         verbose=verbose,
