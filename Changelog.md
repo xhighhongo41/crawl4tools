@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- English and Japanese messages for `crawl4cli`, `crawl4mcp`, and `crawl4server`: `--help` text, error messages, notes and progress lines on stderr, the MCP tools' descriptions and result text, the servers' startup/warning lines, and the web loader's JSON error responses
+- `--lang en|ja` option, `CRAWL4CLI_LANG`/`CRAWL4MCP_LANG`/`CRAWL4SERVER_LANG` environment variables, and a `lang` config file key (servers) to choose the message language, resolved as option > environment variable > config file
+
+### Changed
+
+- `crawl4cli` now follows the OS locale (`LANGUAGE`, `LC_ALL`, `LC_MESSAGES`, `LANG`) to pick its default language; `crawl4mcp` and `crawl4server` still default to English regardless of the locale
+
 ## [0.3.0] - 2026-09-24
 
 ### Added
