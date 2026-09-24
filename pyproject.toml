@@ -1,6 +1,6 @@
 [project]
 name = "crawl4tools"
-version = "0.1.0"
+version = "0.2.0"
 description = "Web crawler server for Open WebUI and MCP, plus a local download CLI, built on crawl4ai"
 readme = "README.md"
 license = "Apache-2.0"
@@ -22,14 +22,18 @@ dependencies = [
     "crawl4ai[pdf]>=0.9.4,<0.10",
     "click>=8.1",
     "httpx>=0.27",
+    "mcp>=2.2,<3",
+    "pydantic>=2.12",
+    "pyyaml>=6",
 ]
 
 [project.optional-dependencies]
-# Placeholder for the server extra. fastapi, uvicorn, mcp will be added with the server release.
+# Placeholder for the server extra. fastapi will be added with the Open WebUI loader.
 server = []
 
 [project.scripts]
 crawl4cli = "crawl4tools.cli.main:main"
+crawl4mcp = "crawl4tools.server.mcp_main:main"
 
 [project.urls]
 Homepage = "https://github.com/xhighhongo41/crawl4tools"
@@ -50,6 +54,7 @@ dev = [
     "mypy",
     "pytest",
     "pytest-asyncio",
+    "types-PyYAML",
 ]
 
 [tool.ruff]

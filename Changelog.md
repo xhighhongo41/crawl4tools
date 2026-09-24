@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-24
+
+### Added
+
+- `crawl4mcp` MCP server with `fetch` (return content directly) and `download` (save to files) tools
+- stdio and Streamable HTTP transports
+- Per-call URL limit (default 20) and server-wide concurrency limit (default 3), both configurable
+- Configuration via command-line options, `CRAWL4MCP_*` environment variables, or a YAML/JSON config file (`--config`)
+- `Fetcher.fetch`/`fetch_many` accept per-call options while sharing one engine
+
 ## [0.1.0] - 2026-09-24
 
 ### Added
@@ -31,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No code is included in this release.
 
-[Unreleased]: https://github.com/xhighhongo41/crawl4tools/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/xhighhongo41/crawl4tools/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/xhighhongo41/crawl4tools/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/xhighhongo41/crawl4tools/compare/v0.0.1...v0.1.0
 [0.0.1]: https://github.com/xhighhongo41/crawl4tools/releases/tag/v0.0.1

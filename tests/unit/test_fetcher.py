@@ -665,3 +665,166 @@ async def test_fit_does_not_apply_to_other_formats() -> None:
         FetchOptions(fit=True, format=OutputFormat.HTML), crawler=crawler
     )
     assert outcome.text == "<html><body>full</body></html>"
+
+
+# --- per-call options -------------------------------------------------------------
+
+
+async def test_per_call_options_override_constructor_options() -> None:
+    from crawl4ai import PruningContentFilterLXML
+
+    fetcher, crawler, http = make_fetcher(FetchOptions(format=OutputFormat.MARKDOWN))
+    async with fetcher:
+        first = await fetcher.fetch(
+            URL, options=FetchOptions(format=OutputFormat.MARKDOWN, fit=False, timeout_s=60)
+        )
+        second = await fetcher.fetch(
+            URL,
+            options=FetchOptions(
+                format=OutputFormat.HTML, fit=True, timeout_s=5, ignore_links=True
+            ),
+        )
+    assert first.ok
+    assert first.text == "# Hello"
+    assert first.suggested_extension == ".md"
+    assert second.ok
+    assert second.text == "<html><body><h1>Hello</h1></body></html>"
+    assert second.suggested_extension == ".html"
+
+    first_config, second_config = (config for _, config in crawler.calls)
+    assert first_config.page_timeout == 60000
+    assert first_config.markdown_generator.content_filter is None
+    assert first_config.markdown_generator.options["ignore_links"] is False
+    assert second_config.page_timeout == 5000
+    assert isinstance(second_config.markdown_generator.content_filter, PruningContentFilterLXML)
+    assert second_config.markdown_generator.options["ignore_links"] is True
+    assert [timeout for _, timeout in http.client_calls] == [60, 5]
+    # The browser is started once and shared across calls with different options.
+    assert crawler.factory_calls == 1
+    assert crawler.entered == 1
+    assert crawler.exited == 1
+    # Per-call options do not replace the constructor options.
+    assert fetcher.options == FetchOptions(format=OutputFormat.MARKDOWN)
+
+
+async def test_per_call_markdown_options_select_text() -> None:
+    fetcher, _, _ = make_fetcher()
+    async with fetcher:
+        fit = await fetcher.fetch(URL, options=FetchOptions(fit=True))
+        cited = await fetcher.fetch(URL, options=FetchOptions(citations=True))
+        plain = await fetcher.fetch(URL)
+    assert fit.text == "# Hello (fit)"
+    assert cited.text == "# Hello [1]\n\n## References\n[1]: x"
+    assert plain.text == "# Hello"
+
+
+async def test_per_call_format_applies_to_failures() -> None:
+    crawler = FakeCrawler(fail("net::ERR_NAME_NOT_RESOLVED"))
+    fetcher, _, _ = make_fetcher(crawler=crawler)
+    async with fetcher:
+        outcome = await fetcher.fetch(URL, options=FetchOptions(format=OutputFormat.HTML))
+    assert not outcome.ok
+    assert outcome.suggested_extension == ".html"
+
+
+async def test_per_call_timeout_is_reported_in_timeout_error() -> None:
+    crawler = FakeCrawler(fail("Timeout 5000ms exceeded."))
+    fetcher, _, _ = make_fetcher(FetchOptions(timeout_s=60), crawler=crawler)
+    async with fetcher:
+        outcome = await fetcher.fetch(URL, options=FetchOptions(timeout_s=5))
+    assert outcome.error is not None
+    assert outcome.error.kind is FailureKind.TIMEOUT
+    assert "5" in str(outcome.error)
+    assert "60" not in str(outcome.error)
+
+
+async def test_per_call_pdf_resource_follows_per_call_format(sample_pdf: bytes) -> None:
+    http = FakeHttp(lambda request: response("application/pdf", sample_pdf))
+    fetcher, crawler, _ = make_fetcher(FetchOptions(format=OutputFormat.MARKDOWN), http=http)
+    async with fetcher:
+        outcome = await fetcher.fetch(URL, options=FetchOptions(format=OutputFormat.RAW))
+    assert outcome.ok
+    assert outcome.content_kind is ContentKind.PDF
+    assert outcome.data == sample_pdf
+    assert outcome.text is None
+    assert outcome.suggested_extension == ".pdf"
+    assert not crawler.started
+
+
+async def test_fetch_many_applies_per_call_options_to_every_url() -> None:
+    urls = [f"https://example.com/{i}" for i in range(4)]
+    fetcher, crawler, _ = make_fetcher()
+    async with fetcher:
+        outcomes = await fetcher.fetch_many(
+            urls, concurrency=2, options=FetchOptions(format=OutputFormat.HTML, timeout_s=7)
+        )
+    assert [o.url for o in outcomes] == urls
+    assert all(o.ok for o in outcomes)
+    assert all(o.suggested_extension == ".html" for o in outcomes)
+    assert all(o.text == "<html><body><h1>Hello</h1></body></html>" for o in outcomes)
+    assert all(config.page_timeout == 7000 for _, config in crawler.calls)
+    assert crawler.factory_calls == 1
+
+
+async def test_omitted_options_use_constructor_options() -> None:
+    fetcher, crawler, http = make_fetcher(
+        FetchOptions(format=OutputFormat.HTML, timeout_s=12, proxy="proxy.example:8080")
+    )
+    async with fetcher:
+        single = await fetcher.fetch(URL)
+        many = await fetcher.fetch_many([URL])
+    for outcome in (single, *many):
+        assert outcome.ok
+        assert outcome.suggested_extension == ".html"
+    assert all(config.page_timeout == 12000 for _, config in crawler.calls)
+    assert http.proxies == ["http://proxy.example:8080", "http://proxy.example:8080"]
+
+
+async def test_per_call_proxy_is_normalized_and_falls_back() -> None:
+    crawler = FakeCrawler(
+        proxy_aware(fail("net::ERR_PROXY_CONNECTION_FAILED at " + URL), make_result())
+    )
+    fetcher, crawler, http = make_fetcher(crawler=crawler)
+    async with fetcher:
+        direct = await fetcher.fetch(URL)
+        proxied = await fetcher.fetch(URL, options=FetchOptions(proxy="proxy.example:8080"))
+    assert direct.ok
+    assert direct.notes == []
+    assert proxied.ok
+    assert proxied.notes[0].startswith("proxy failed (")
+    assert http.proxies == [None, "http://proxy.example:8080", None]
+    assert crawler.calls[1][1].proxy_config.server == "http://proxy.example:8080"
+    assert crawler.calls[2][1].proxy_config is None
+
+
+async def test_per_call_proxy_respects_per_call_fallback() -> None:
+    crawler = FakeCrawler(fail("net::ERR_PROXY_CONNECTION_FAILED at " + URL))
+    fetcher, crawler, _ = make_fetcher(crawler=crawler)
+    async with fetcher:
+        outcome = await fetcher.fetch(URL, options=FetchOptions(proxy=PROXY, fallback=False))
+    assert not outcome.ok
+    assert isinstance(outcome.error, ProxyFetchError)
+    assert len(crawler.calls) == 1
+    assert_no_secret(outcome)
+
+
+async def test_per_call_options_without_proxy_do_not_use_constructor_proxy() -> None:
+    fetcher, crawler, http = make_fetcher(FetchOptions(proxy=PROXY))
+    async with fetcher:
+        outcome = await fetcher.fetch(URL, options=FetchOptions())
+    assert outcome.ok
+    assert http.proxies == [None]
+    assert crawler.calls[0][1].proxy_config is None
+
+
+async def test_invalid_per_call_proxy_raises_before_fetching() -> None:
+    fetcher, crawler, http = make_fetcher()
+    bad = FetchOptions(proxy="ftp://proxy.example:21")
+    async with fetcher:
+        with pytest.raises(ValueError):
+            await fetcher.fetch(URL, options=bad)
+        with pytest.raises(ValueError):
+            await fetcher.fetch_many([URL, URL], options=bad)
+    assert crawler.factory_calls == 0
+    assert crawler.calls == []
+    assert http.client_calls == []

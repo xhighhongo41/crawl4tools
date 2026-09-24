@@ -128,6 +128,17 @@ def _media_type(content_type: str | None) -> str | None:
     return content_type.split(";", 1)[0].strip().lower() or None
 
 
+def _normalized(options: FetchOptions) -> FetchOptions:
+    """Return *options* with its proxy normalized.
+
+    Raises:
+        ValueError: if ``options.proxy`` is not a valid proxy URL.
+    """
+    if options.proxy is None:
+        return options
+    return replace(options, proxy=normalize_proxy(options.proxy))
+
+
 class _StartFailure(Exception):
     """Internal marker: the crawler could not be started (see ``Fetcher``)."""
 
@@ -153,9 +164,7 @@ class Fetcher:
         Raises:
             ValueError: if ``options.proxy`` is not a valid proxy URL.
         """
-        if options.proxy is not None:
-            options = replace(options, proxy=normalize_proxy(options.proxy))
-        self._options = options
+        self._options = _normalized(options)
         self._crawler_factory = crawler_factory
         self._http_client_factory = http_client_factory
         self._lock = asyncio.Lock()
@@ -209,33 +218,52 @@ class Fetcher:
                     return crawler
             raise _StartFailure(self._start_error)
 
-    async def fetch_many(self, urls: Sequence[str], concurrency: int = 3) -> list[FetchOutcome]:
+    async def fetch_many(
+        self,
+        urls: Sequence[str],
+        concurrency: int = 3,
+        *,
+        options: FetchOptions | None = None,
+    ) -> list[FetchOutcome]:
         """Fetch *urls* with at most *concurrency* in flight, preserving order.
 
+        *options* apply to every URL of this call; when omitted, the options
+        given to the constructor are used. The browser is shared either way.
+
         Raises:
-            ValueError: if *concurrency* is less than 1.
+            ValueError: if *concurrency* is less than 1 or ``options.proxy``
+                is not a valid proxy URL.
         """
         if concurrency < 1:
             raise ValueError(f"concurrency must be at least 1, got {concurrency}")
+        effective = self._options if options is None else _normalized(options)
         semaphore = asyncio.Semaphore(concurrency)
 
         async def run(url: str) -> FetchOutcome:
             async with semaphore:
-                return await self.fetch(url)
+                return await self.fetch(url, options=effective)
 
         return list(await asyncio.gather(*(run(url) for url in urls)))
 
-    async def fetch(self, url: str) -> FetchOutcome:
-        """Fetch a single URL. Failures are reported in the outcome, not raised."""
+    async def fetch(self, url: str, *, options: FetchOptions | None = None) -> FetchOutcome:
+        """Fetch a single URL. Failures are reported in the outcome, not raised.
+
+        *options* apply to this call only; when omitted, the options given to
+        the constructor are used. The browser is shared either way.
+
+        Raises:
+            ValueError: if ``options.proxy`` is not a valid proxy URL (checked
+                before anything is fetched).
+        """
+        effective = self._options if options is None else _normalized(options)
         try:
-            return await self._fetch(url)
+            return await self._fetch(url, effective)
         except Exception as exc:
             # Last-resort safety net: a bug in one URL must not abort a batch.
-            return self._failure(url, FetchError(url, _describe(exc)))
+            return self._failure(url, FetchError(url, _describe(exc)), effective)
 
-    async def _fetch(self, url: str) -> FetchOutcome:
-        options = self._options
-        first, retriable = await self._attempt(url, options.proxy)
+    async def _fetch(self, url: str, options: FetchOptions) -> FetchOutcome:
+        first, retriable = await self._attempt(url, options.proxy, options)
         error = first.error
         if first.ok or error is None or not retriable:
             return first
@@ -244,18 +272,19 @@ class Fetcher:
             options=options, kind=error.kind, status_code=status_code, already_retried=False
         ):
             return first
-        second, _ = await self._attempt(url, None)
+        second, _ = await self._attempt(url, None, options)
         # Errors redact proxy credentials themselves, so str() is safe here.
         second.notes.insert(0, f"proxy failed ({error}); retried with a direct connection")
         return second
 
-    async def _attempt(self, url: str, proxy: str | None) -> tuple[FetchOutcome, bool]:
+    async def _attempt(
+        self, url: str, proxy: str | None, options: FetchOptions
+    ) -> tuple[FetchOutcome, bool]:
         """Run one probe + browser attempt for *url* through *proxy*.
 
         Returns the outcome and whether a failure may be retried without the
         proxy (False when the browser itself could not be started).
         """
-        options = self._options
         probed = await probe(
             url,
             proxy=proxy,
@@ -263,7 +292,7 @@ class Fetcher:
             client_factory=self._http_client_factory,
         )
         if probed.ok and not probed.is_html and probed.body is not None:
-            return await self._resource_outcome(url, probed), True
+            return await self._resource_outcome(url, probed, options), True
 
         try:
             crawler = await self._get_crawler()
@@ -271,31 +300,36 @@ class Fetcher:
             detail = _describe(exc)
             start_error = build_error(url, classify_error_message(detail), detail=detail)
             # Retrying without the proxy cannot fix a browser that won't start.
-            return self._failure(url, start_error), False
+            return self._failure(url, start_error, options), False
 
         try:
             result = await crawler.arun(url, config=build_run_config(options, proxy))
         except Exception as exc:
             detail = _describe(exc)
-            return self._failure(url, self._classified_error(url, detail, proxy)), True
+            error = self._classified_error(url, detail, proxy, options)
+            return self._failure(url, error, options), True
 
-        return await self._judge(url, proxy, result), True
+        return await self._judge(url, proxy, result, options), True
 
-    def _classified_error(self, url: str, detail: str | None, proxy: str | None) -> FetchError:
+    def _classified_error(
+        self, url: str, detail: str | None, proxy: str | None, options: FetchOptions
+    ) -> FetchError:
         return build_error(
             url,
             classify_error_message(detail),
             detail=detail,
-            timeout_s=self._options.timeout_s,
+            timeout_s=options.timeout_s,
             proxy=proxy,
         )
 
-    async def _download(self, url: str, proxy: str | None) -> ProbeResult | None:
+    async def _download(
+        self, url: str, proxy: str | None, options: FetchOptions
+    ) -> ProbeResult | None:
         """Download *url* over plain HTTP; return the probe only if it succeeded."""
         downloaded = await probe(
             url,
             proxy=proxy,
-            timeout_s=self._options.timeout_s,
+            timeout_s=options.timeout_s,
             client_factory=self._http_client_factory,
             read_body=True,
         )
@@ -303,22 +337,25 @@ class Fetcher:
             return downloaded
         return None
 
-    async def _judge(self, url: str, proxy: str | None, result: Any) -> FetchOutcome:
+    async def _judge(
+        self, url: str, proxy: str | None, result: Any, options: FetchOptions
+    ) -> FetchOutcome:
         """Turn a crawl4ai result into an outcome (possibly via an HTTP download)."""
         status_code: int | None = getattr(result, "status_code", None)
         if not getattr(result, "success", False):
             detail: str | None = getattr(result, "error_message", None)
             kind = classify_error_message(detail)
             if kind is FailureKind.NON_HTML:
-                downloaded = await self._download(url, proxy)
+                downloaded = await self._download(url, proxy, options)
                 if downloaded is not None:
-                    return await self._resource_outcome(url, downloaded)
-                return self._failure(url, NonHtmlContentError(url, detail), status_code)
-            return self._failure(url, self._classified_error(url, detail, proxy), status_code)
+                    return await self._resource_outcome(url, downloaded, options)
+                return self._failure(url, NonHtmlContentError(url, detail), options, status_code)
+            error = self._classified_error(url, detail, proxy, options)
+            return self._failure(url, error, options, status_code)
 
         status_error = error_for_status(url, status_code)
         if status_error is not None:
-            return self._failure(url, status_error, status_code)
+            return self._failure(url, status_error, options, status_code)
 
         content_type = _header(getattr(result, "response_headers", None), "content-type")
         media_type = _media_type(content_type)
@@ -328,18 +365,25 @@ class Fetcher:
             and media_type not in _HTML_MEDIA_TYPES
             and not (html or "").strip()
         ):
-            downloaded = await self._download(url, proxy)
+            downloaded = await self._download(url, proxy, options)
             if downloaded is not None:
-                return await self._resource_outcome(url, downloaded)
-            return self._failure(url, FetchError(url, "browser returned no HTML"), status_code)
+                return await self._resource_outcome(url, downloaded, options)
+            return self._failure(
+                url, FetchError(url, "browser returned no HTML"), options, status_code
+            )
 
-        return self._page_outcome(url, result, status_code, content_type)
+        return self._page_outcome(url, result, status_code, content_type, options)
 
     def _page_outcome(
-        self, url: str, result: Any, status_code: int | None, content_type: str | None
+        self,
+        url: str,
+        result: Any,
+        status_code: int | None,
+        content_type: str | None,
+        options: FetchOptions,
     ) -> FetchOutcome:
         """Assemble a successful outcome for an HTML page in the requested format."""
-        fmt = self._options.format
+        fmt = options.format
         outcome = FetchOutcome(
             url=url,
             ok=True,
@@ -351,35 +395,33 @@ class Fetcher:
         )
         html: str = getattr(result, "html", None) or ""
         if fmt is OutputFormat.MARKDOWN:
-            outcome.text = self._markdown_text(result.markdown, outcome)
+            outcome.text = self._markdown_text(result.markdown, outcome, options)
         elif fmt is OutputFormat.HTML:
             outcome.text = html
         elif fmt is OutputFormat.MHTML:
             if result.mhtml is None:
                 return self._failure(
-                    url, FetchError(url, "the browser did not produce MHTML"), status_code
+                    url, FetchError(url, "the browser did not produce MHTML"), options, status_code
                 )
             outcome.text = result.mhtml
         elif fmt is OutputFormat.PDF:
             if result.pdf is None:
                 return self._failure(
-                    url, FetchError(url, "the browser did not produce a PDF"), status_code
+                    url, FetchError(url, "the browser did not produce a PDF"), options, status_code
                 )
             outcome.data = bytes(result.pdf)
         elif fmt is OutputFormat.SCREENSHOT:
             if result.screenshot is None:
-                return self._failure(
-                    url, FetchError(url, "the browser did not produce a screenshot"), status_code
-                )
+                error = FetchError(url, "the browser did not produce a screenshot")
+                return self._failure(url, error, options, status_code)
             outcome.data = base64.b64decode(result.screenshot)
         else:  # OutputFormat.RAW for an HTML page: the page source as-is.
             outcome.data = html.encode("utf-8")
             outcome.suggested_extension = ".html"
         return outcome
 
-    def _markdown_text(self, markdown: Any, outcome: FetchOutcome) -> str:
+    def _markdown_text(self, markdown: Any, outcome: FetchOutcome, options: FetchOptions) -> str:
         """Pick the full or content-filtered Markdown, with citations if requested."""
-        options = self._options
         if options.fit:
             fit: str = getattr(markdown, "fit_markdown", None) or ""
             if fit.startswith(_FIT_ERROR_PREFIX):
@@ -396,9 +438,11 @@ class Fetcher:
         text: str = markdown.raw_markdown
         return text
 
-    async def _resource_outcome(self, url: str, probed: ProbeResult) -> FetchOutcome:
+    async def _resource_outcome(
+        self, url: str, probed: ProbeResult, options: FetchOptions
+    ) -> FetchOutcome:
         """Assemble an outcome for a non-HTML resource downloaded over HTTP."""
-        fmt = self._options.format
+        fmt = options.format
         body = probed.body if probed.body is not None else b""
         media_type = probed.media_type
         outcome = FetchOutcome(
@@ -441,11 +485,17 @@ class Fetcher:
         )
         return outcome
 
-    def _failure(self, url: str, error: FetchError, status_code: int | None = None) -> FetchOutcome:
+    def _failure(
+        self,
+        url: str,
+        error: FetchError,
+        options: FetchOptions,
+        status_code: int | None = None,
+    ) -> FetchOutcome:
         return FetchOutcome(
             url=url,
             ok=False,
             status_code=status_code,
             error=error,
-            suggested_extension=extension_for(self._options.format),
+            suggested_extension=extension_for(options.format),
         )
