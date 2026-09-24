@@ -19,3 +19,95 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.18.0\n"
 
+#, python-brace-format
+msgid "fetch failed: {summary}: {url}"
+msgstr "取得に失敗しました: {summary}: {url}"
+
+#, python-brace-format
+msgid "fetch failed: {url}"
+msgstr "取得に失敗しました: {url}"
+
+#, python-brace-format
+msgid "HTTP {status_code} {reason}: {url}"
+msgstr "HTTP {status_code} {reason}: {url}"
+
+#, python-brace-format
+msgid "HTTP {status_code}: {url}"
+msgstr "HTTP {status_code}: {url}"
+
+#, python-brace-format
+msgid "could not resolve host: {url}"
+msgstr "ホスト名を解決できません: {url}"
+
+#, python-brace-format
+msgid "connection refused: {url}"
+msgstr "接続を拒否されました: {url}"
+
+#, python-brace-format
+msgid "timed out after {timeout_s:g}s: {url}"
+msgstr "{timeout_s:g} 秒でタイムアウトしました: {url}"
+
+#, python-brace-format
+msgid "proxy connection failed ({proxy}): {url}"
+msgstr "プロキシに接続できません({proxy}): {url}"
+
+msgid ""
+"browser is not installed. Run 'playwright install chromium' (or "
+"'crawl4ai-setup') and retry."
+msgstr ""
+"ブラウザがインストールされていません。'playwright install chromium'(または 'crawl4ai-"
+"setup')を実行してから再試行してください。"
+
+#, python-brace-format
+msgid "content is not a web page and could not be downloaded: {url}"
+msgstr "Web ページではなく、ダウンロードもできませんでした: {url}"
+
+#, python-brace-format
+msgid "proxy failed ({error}); retried with a direct connection"
+msgstr "プロキシ経由で失敗しました({error})。直接接続で再試行しました"
+
+#, python-brace-format
+msgid "content filter failed ({reason}); saved the full page"
+msgstr "コンテンツフィルタが失敗しました({reason})。ページ全体を保存しました"
+
+msgid "content filter kept nothing; saved the full page"
+msgstr "コンテンツフィルタで何も残りませんでした。ページ全体を保存しました"
+
+#, python-brace-format
+msgid "could not convert PDF to Markdown ({error}); saved the original file"
+msgstr "PDF を Markdown に変換できませんでした({error})。元のファイルを保存しました"
+
+msgid "no extractable text in PDF; saved an empty document"
+msgstr "PDF から抽出できるテキストがありません。空の文書を保存しました"
+
+#, python-brace-format
+msgid "PDF saved as-is (format '{format}' does not apply)"
+msgstr "PDF をそのまま保存しました(形式 '{format}' は適用できません)"
+
+#, python-brace-format
+msgid "not a web page ({media_type}); saved the original file"
+msgstr "Web ページではありません({media_type})。元のファイルを保存しました"
+
+msgid "not a web page (unknown type); saved the original file"
+msgstr "Web ページではありません(形式不明)。元のファイルを保存しました"
+
+#, python-brace-format
+msgid "not an http(s) URL: {url}"
+msgstr "http(s) の URL ではありません: {url}"
+
+#, python-brace-format
+msgid "unsupported proxy scheme: {proxy}"
+msgstr "対応していないプロキシのスキームです: {proxy}"
+
+#, python-brace-format
+msgid "proxy URL is missing a host: {proxy}"
+msgstr "プロキシ URL にホストがありません: {proxy}"
+
+#, python-brace-format
+msgid "proxy URL has an invalid port: {proxy}"
+msgstr "プロキシ URL のポートが不正です: {proxy}"
+
+#, python-brace-format
+msgid "proxy URL is missing a port: {proxy}"
+msgstr "プロキシ URL にポートがありません: {proxy}"
+

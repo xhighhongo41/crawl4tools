@@ -155,7 +155,7 @@ def page_meta(outcome: FetchOutcome, url: str) -> dict[str, object]:
         "chars": len(outcome.text) if outcome.text is not None else None,
         "bytes": len(outcome.data) if outcome.data is not None else None,
         "error": str(outcome.error) if outcome.error is not None else None,
-        "notes": list(outcome.notes),
+        "notes": [str(note) for note in outcome.notes],
     }
 
 
@@ -187,7 +187,7 @@ def download_record(
         "content_type": outcome.content_type,
         "status_code": outcome.status_code,
         "error": resolved_error,
-        "notes": list(outcome.notes),
+        "notes": [str(note) for note in outcome.notes],
     }
 
 

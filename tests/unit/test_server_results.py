@@ -7,7 +7,7 @@ import pytest
 from mcp.types import ImageContent, TextContent
 
 from crawl4tools.engine.errors import HttpStatusError, NameResolutionError
-from crawl4tools.engine.models import ContentKind, FetchOutcome
+from crawl4tools.engine.models import ContentKind, FetchOutcome, Note
 from crawl4tools.server.results import (
     check_urls,
     download_lines,
@@ -142,7 +142,7 @@ def test_page_blocks_text_multiple_status_dash_when_missing() -> None:
 
 
 def test_page_blocks_notes_included_when_single() -> None:
-    outcome = _ok_text_outcome(notes=["saved the full page"])
+    outcome = _ok_text_outcome(notes=[Note("saved the full page")])
     blocks = page_blocks(outcome, outcome.url, multiple=False)
     block = blocks[0]
     assert isinstance(block, TextContent)
@@ -150,7 +150,7 @@ def test_page_blocks_notes_included_when_single() -> None:
 
 
 def test_page_blocks_notes_and_header_combined_when_multiple() -> None:
-    outcome = _ok_text_outcome(notes=["note one", "note two"])
+    outcome = _ok_text_outcome(notes=[Note("note one"), Note("note two")])
     blocks = page_blocks(outcome, outcome.url, multiple=True)
     block = blocks[0]
     assert isinstance(block, TextContent)
@@ -205,7 +205,7 @@ def test_page_blocks_screenshot_returns_header_text_then_image() -> None:
         content_kind=ContentKind.HTML,
         content_type="text/html; charset=utf-8",
         data=payload,
-        notes=["a note"],
+        notes=[Note("a note")],
     )
     blocks = page_blocks(outcome, outcome.url, multiple=True)
     assert len(blocks) == 2
@@ -292,7 +292,7 @@ def test_page_blocks_binary_unknown_content_type() -> None:
 
 
 def test_page_meta_success() -> None:
-    outcome = _ok_text_outcome(notes=["a note"])
+    outcome = _ok_text_outcome(notes=[Note("a note")])
     meta = page_meta(outcome, outcome.url)
     assert meta == {
         "url": "https://example.com/",
@@ -307,6 +307,12 @@ def test_page_meta_success() -> None:
         "error": None,
         "notes": ["a note"],
     }
+
+
+def test_page_meta_notes_are_english_strings() -> None:
+    note = Note("PDF saved as-is (format '{format}' does not apply)", {"format": "html"})
+    meta = page_meta(_ok_text_outcome(notes=[note]), "https://example.com/")
+    assert meta["notes"] == ["PDF saved as-is (format 'html' does not apply)"]
 
 
 def test_page_meta_includes_title() -> None:
@@ -353,7 +359,7 @@ def test_page_meta_notes_is_a_copy() -> None:
 
 
 def test_download_record_success_with_text() -> None:
-    outcome = _ok_text_outcome(notes=["kept full page"])
+    outcome = _ok_text_outcome(notes=[Note("kept full page")])
     path = Path("/downloads/example.md")
     record = download_record(outcome, outcome.url, path)
     assert record == {
@@ -367,6 +373,13 @@ def test_download_record_success_with_text() -> None:
         "error": None,
         "notes": ["kept full page"],
     }
+
+
+def test_download_record_notes_are_english_strings() -> None:
+    note = Note("content filter failed ({reason}); saved the full page", {"reason": "boom"})
+    outcome = _ok_text_outcome(notes=[note])
+    record = download_record(outcome, outcome.url, Path("/d/e.md"))
+    assert record["notes"] == ["content filter failed (boom); saved the full page"]
 
 
 def test_download_record_success_with_binary_data() -> None:
@@ -418,7 +431,7 @@ def test_download_lines_success_no_notes() -> None:
 
 
 def test_download_lines_success_with_notes() -> None:
-    outcome = _ok_text_outcome(notes=["saved the full page"])
+    outcome = _ok_text_outcome(notes=[Note("saved the full page")])
     record = download_record(outcome, "https://example.com/", Path("/d/e.md"))
     lines = download_lines(record)
     assert lines[0] == "note: https://example.com/: saved the full page"
