@@ -1,4 +1,4 @@
-"""MCP server (and, later, the Open WebUI loader) built on the shared fetch engine."""
+"""MCP server and Open WebUI web loader built on the shared fetch engine."""
 
 from __future__ import annotations
 
