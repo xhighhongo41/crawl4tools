@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
 from click.testing import CliRunner
 
+from crawl4tools.i18n import ENGLISH, LOCALE_ENV_VARS, Translator, get_translator
 from crawl4tools.server import host as host_module
 from crawl4tools.server import server_main
 from crawl4tools.server.host import McpSettings
@@ -393,3 +395,227 @@ def test_loader_api_key_never_in_output(monkeypatch: pytest.MonkeyPatch, tmp_pat
 
     help_result = CliRunner().invoke(main, ["--help"])
     assert "s3cr3t-value" not in help_result.output
+
+
+# --- message language -------------------------------------------------------------
+
+JA = get_translator("ja")
+
+
+def squash(text: str) -> str:
+    """Remove every whitespace character, so help text wrapping does not matter."""
+    return "".join(text.split())
+
+
+def clear_locale(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Remove every locale variable, including the LANGUAGE=en set by conftest."""
+    for name in LOCALE_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
+
+
+@pytest.mark.parametrize(
+    ("args", "env", "config", "expected"),
+    [
+        ([], {}, None, "en"),
+        (["--lang", "ja"], {}, None, "ja"),
+        ([], {"CRAWL4SERVER_LANG": "ja"}, None, "ja"),
+        ([], {}, "lang: ja\n", "ja"),
+        (["--lang", "en"], {"CRAWL4SERVER_LANG": "ja"}, None, "en"),
+        ([], {"CRAWL4SERVER_LANG": "en"}, "lang: ja\n", "en"),
+        (["--lang", "ja"], {"CRAWL4SERVER_LANG": "en"}, "lang: en\n", "ja"),
+    ],
+    ids=[
+        "nothing-set",
+        "lang-option",
+        "variable",
+        "config",
+        "option-beats-variable",
+        "variable-beats-config",
+        "option-beats-all",
+    ],
+)
+def test_language_precedence(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    args: list[str],
+    env: dict[str, str],
+    config: str | None,
+    expected: str,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    recorder = install(monkeypatch)
+    if config is not None:
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(config, encoding="utf-8")
+        args = ["--config", str(config_file), *args]
+    result = invoke(args, env=env)
+    assert result.exit_code == 0, result.output
+    assert recorder.calls[0]["settings"].lang == expected
+
+
+def test_locale_does_not_choose_the_language(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    clear_locale(monkeypatch)
+    monkeypatch.setenv("LANG", "ja_JP.UTF-8")
+    recorder = install(monkeypatch)
+    result = invoke([])
+    assert result.exit_code == 0, result.output
+    assert recorder.calls[0]["settings"].lang == "en"
+
+
+@pytest.mark.parametrize(
+    ("args", "env", "config"),
+    [
+        (["--lang", "de"], {}, None),
+        ([], {"CRAWL4SERVER_LANG": "de"}, None),
+        ([], {}, "lang: de\n"),
+    ],
+    ids=["lang-option", "variable", "config"],
+)
+def test_unsupported_language_exits_2(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    args: list[str],
+    env: dict[str, str],
+    config: str | None,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    recorder = install(monkeypatch)
+    if config is not None:
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(config, encoding="utf-8")
+        args = ["--config", str(config_file), *args]
+    result = invoke(args, env=env)
+    assert result.exit_code == 2
+    assert "Invalid value for '--lang'" in result.stderr
+    assert recorder.calls == []
+
+
+def test_japanese_warnings_and_serving_lines_keep_the_english_prefixes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    install(monkeypatch, ports={"loader": 40001, "mcp": 40002})
+    result = invoke(["--lang", "ja", "--host", "0.0.0.0"])
+    assert result.exit_code == 0, result.output
+    assert result.stderr.splitlines() == [
+        "crawl4server: warning: MCP エンドポイントはループバック以外のホストで認証なしになって"
+        "います。到達できる人は誰でもこのサーバーを使えます",
+        "crawl4server: warning: web loader も認証なしです。認証を必須にするには "
+        "--loader-api-key を指定してください",
+        "crawl4server: http://0.0.0.0:40001/crawl で Open WebUI の web loader を提供しています",
+        "crawl4server: http://0.0.0.0:40002/mcp で MCP を提供しています",
+    ]
+
+
+def test_japanese_listen_error_keeps_the_english_prefix(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    install(
+        monkeypatch,
+        run_effect=host_module.ListenError("127.0.0.1", 8766, "Address already in use"),
+    )
+    result = invoke(["--lang", "ja"])
+    assert result.exit_code == 1
+    assert "error: 127.0.0.1:8766 で待ち受けできません: Address already in use" in result.stderr
+
+
+def test_japanese_usage_error_for_equal_ports(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    install(monkeypatch)
+    result = invoke(["--lang", "ja", "--loader-port", "9000", "--mcp-port", "9000"])
+    assert result.exit_code == 2
+    assert "--loader-port と --mcp-port は異なる値にしてください" in result.output
+
+
+def test_japanese_help_shows_translated_texts() -> None:
+    result = CliRunner().invoke(server_main.build_command(JA), ["--help"])
+    assert result.exit_code == 0
+    output = squash(result.output)
+    for text in [
+        "Open WebUI の web loader と MCP を 1 つのプロセスから提供します。",
+        "待ち受けるホストです(両方のポート)。",
+        "Open WebUI の web loader が使うポートです。",
+        "Open WebUI の web loader が待ち受ける HTTP パスです。",
+        "MCP の Streamable HTTP ポートです。",
+        "MCP エンドポイントを提供する HTTP パスです。",
+        "MCP の download ツールがファイルを保存するルートディレクトリです。",
+        "YAML または JSON の設定ファイルです。コマンドラインのオプションと CRAWL4SERVER_* "
+        "環境変数が優先されます。",
+        "メッセージの言語(en または ja)です。",
+        "バージョンを表示して終了します。",
+    ]:
+        assert squash(text) in output, text
+    assert "--lang [en|ja]" in result.output
+    assert "Usage:" in result.output
+    assert "Host to listen on" not in result.output
+
+
+def test_japanese_loader_path_health_error(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    install(monkeypatch)
+    result = CliRunner().invoke(server_main.build_command(JA), ["--loader-path", "/health"])
+    assert result.exit_code == 2
+    assert "'/health' はヘルスチェック用に予約されています" in result.output
+
+
+# --- entry (the console script) ------------------------------------------------------
+
+
+class CommandRecorder:
+    """Stands in for build_command(): records the translator and the main() call."""
+
+    def __init__(self) -> None:
+        self.translators: list[Translator] = []
+        self.main_calls: list[dict[str, Any]] = []
+
+    def __call__(self, t: Translator) -> CommandRecorder:
+        self.translators.append(t)
+        return self
+
+    def main(self, **kwargs: Any) -> None:
+        self.main_calls.append(kwargs)
+
+
+def run_entry(monkeypatch: pytest.MonkeyPatch, argv: list[str]) -> CommandRecorder:
+    """Run entry() with *argv* and a recording build_command()."""
+    monkeypatch.setattr(sys, "argv", ["crawl4server", *argv])
+    recorder = CommandRecorder()
+    monkeypatch.setattr(server_main, "build_command", recorder)
+    server_main.entry()
+    return recorder
+
+
+@pytest.mark.parametrize(
+    ("argv", "env", "expected"),
+    [
+        (["--lang", "ja"], {}, JA),
+        (["--lang=ja"], {}, JA),
+        ([], {"CRAWL4SERVER_LANG": "ja"}, JA),
+        ([], {"LANG": "ja_JP.UTF-8"}, ENGLISH),
+        ([], {}, ENGLISH),
+        (["--lang", "en"], {"CRAWL4SERVER_LANG": "ja"}, ENGLISH),
+    ],
+    ids=[
+        "lang-option",
+        "lang-option-equals",
+        "variable",
+        "locale-ignored",
+        "nothing-set",
+        "option-beats-variable",
+    ],
+)
+def test_entry_builds_the_command_in_the_chosen_language(
+    monkeypatch: pytest.MonkeyPatch, argv: list[str], env: dict[str, str], expected: Translator
+) -> None:
+    clear_locale(monkeypatch)
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+    recorder = run_entry(monkeypatch, argv)
+    assert len(recorder.translators) == 1
+    assert recorder.translators[0] is expected
+    assert recorder.main_calls == [{"prog_name": "crawl4server"}]

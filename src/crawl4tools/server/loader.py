@@ -34,11 +34,11 @@ from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
 from crawl4tools import __version__
-from crawl4tools.cli.report import error_line
 from crawl4tools.engine.models import FetchOutcome, OutputFormat
 from crawl4tools.engine.naming import dedupe_urls, validate_url
-from crawl4tools.i18n import ENGLISH
+from crawl4tools.i18n import N_, LocalizedError, render_exception
 from crawl4tools.server.mcp_server import ServerState, fetch_all
+from crawl4tools.server.results import UrlsError
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +68,14 @@ class CrawlRequest(BaseModel):
     urls: list[str]
 
 
+class RequestError(LocalizedError, ValueError):
+    """The body of a crawl request is not a valid request.
+
+    Also a ``ValueError``, so existing ``except ValueError`` clauses keep
+    catching it; ``str()`` is the English message.
+    """
+
+
 def prepare_urls(urls: Sequence[str], max_urls: int) -> tuple[list[str], list[str]]:
     """Validate and deduplicate the URLs of one crawl request.
 
@@ -79,7 +87,8 @@ def prepare_urls(urls: Sequence[str], max_urls: int) -> tuple[list[str], list[st
         order and without duplicates, and the invalid URLs.
 
     Raises:
-        ValueError: if more than *max_urls* unique valid URLs remain.
+        UrlsError: (a ``ValueError``) if more than *max_urls* unique valid
+            URLs remain.
     """
     valid: list[str] = []
     rejected: list[str] = []
@@ -90,7 +99,11 @@ def prepare_urls(urls: Sequence[str], max_urls: int) -> tuple[list[str], list[st
             rejected.append(url)
     unique, _duplicates = dedupe_urls(valid)
     if len(unique) > max_urls:
-        raise ValueError(f"too many URLs: {len(unique)} given, at most {max_urls} per request")
+        raise UrlsError(
+            N_("too many URLs: {count} given, at most {limit} per request"),
+            count=len(unique),
+            limit=max_urls,
+        )
     return unique, rejected
 
 
@@ -137,29 +150,32 @@ async def _parse(request: Request) -> CrawlRequest:
     """Parse the body of a crawl request.
 
     Raises:
-        ValueError: with a short reason if the body is not a valid request.
+        RequestError: (a ``ValueError``) with a short reason if the body is
+            not a valid request.
     """
     body = await request.body()
     try:
         data = json.loads(body)
     except ValueError as exc:  # JSONDecodeError and UnicodeDecodeError
-        raise ValueError("request body is not valid JSON") from exc
+        raise RequestError(N_("request body is not valid JSON")) from exc
     if not isinstance(data, dict):
-        raise ValueError('request body must be a JSON object like {"urls": [...]}')
+        raise RequestError(N_('request body must be a JSON object like {{"urls": [...]}}'))
     if "urls" not in data:
-        raise ValueError('missing "urls"')
+        raise RequestError(N_('missing "urls"'))
     try:
         return CrawlRequest.model_validate(data)
     except ValidationError as exc:
-        raise ValueError('"urls" must be a list of strings') from exc
+        raise RequestError(N_('"urls" must be a list of strings')) from exc
 
 
 def _log_skipped(outcome: FetchOutcome, url: str) -> None:
-    """Log why the fetch of *url* produced no document."""
+    """Log (always in English) why the fetch of *url* produced no document."""
     if outcome.ok:
         logger.warning("error: no text content: %s", url)
+    elif outcome.error is not None:
+        logger.warning("error: %s", outcome.error)
     else:
-        logger.warning("%s", error_line(outcome, ENGLISH))
+        logger.warning("error: fetch failed: %s", url)
 
 
 def build_loader_app(state: ServerState, loader: LoaderSettings) -> Starlette:
@@ -169,12 +185,13 @@ def build_loader_app(state: ServerState, loader: LoaderSettings) -> Starlette:
     reports the version (never authenticated). Every other path answers
     404 JSON with a usage hint; the host owns the lifetime of *state*.
     """
-    hint = f'POST {loader.path} with {{"urls": [...]}}'
+    t = state.settings.translator
+    hint = t.gettext('POST {path} with {{"urls": [...]}}').format(path=loader.path)
 
     async def crawl(request: Request) -> Response:
         if loader.api_key is not None and not _authorized(request, loader.api_key):
             return JSONResponse(
-                {"error": "unauthorized"},
+                {"error": t.gettext("unauthorized")},
                 status_code=401,
                 headers={"WWW-Authenticate": "Bearer"},
             )
@@ -182,7 +199,7 @@ def build_loader_app(state: ServerState, loader: LoaderSettings) -> Starlette:
             crawl_request = await _parse(request)
             urls, rejected = prepare_urls(crawl_request.urls, state.settings.max_urls)
         except ValueError as exc:
-            return _error(400, str(exc))
+            return _error(400, render_exception(exc, t))
         for url in rejected:
             logger.warning("error: invalid URL: %s", url)
         if not urls:
@@ -203,12 +220,14 @@ def build_loader_app(state: ServerState, loader: LoaderSettings) -> Starlette:
         return JSONResponse({"status": "ok", "version": __version__})
 
     async def not_found(request: Request, exc: Exception) -> Response:
-        return _error(404, "not found", hint=hint)
+        return _error(404, t.gettext("not found"), hint=hint)
 
     async def method_not_allowed(request: Request, exc: Exception) -> Response:
         headers = exc.headers if isinstance(exc, HTTPException) else None
         return JSONResponse(
-            {"error": "method not allowed", "hint": hint}, status_code=405, headers=headers
+            {"error": t.gettext("method not allowed"), "hint": hint},
+            status_code=405,
+            headers=headers,
         )
 
     return Starlette(

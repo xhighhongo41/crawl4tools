@@ -214,6 +214,32 @@ msgstr "{address} で待ち受けできません: {reason}"
 msgid "not found"
 msgstr "見つかりません"
 
+#, python-brace-format
+msgid "too many URLs: {count} given, at most {limit} per request"
+msgstr "URL が多すぎます: {count} 件(1 リクエストあたり最大 {limit} 件)"
+
+msgid "request body is not valid JSON"
+msgstr "リクエストボディが正しい JSON ではありません"
+
+msgid "request body must be a JSON object like {{\"urls\": [...]}}"
+msgstr "リクエストボディは {{\"urls\": [...]}} のような JSON オブジェクトにしてください"
+
+msgid "missing \"urls\""
+msgstr "\"urls\" がありません"
+
+msgid "\"urls\" must be a list of strings"
+msgstr "\"urls\" は文字列のリストにしてください"
+
+#, python-brace-format
+msgid "POST {path} with {{\"urls\": [...]}}"
+msgstr "{path} に {{\"urls\": [...]}} を POST してください"
+
+msgid "unauthorized"
+msgstr "認証されていません"
+
+msgid "method not allowed"
+msgstr "許可されていないメソッドです"
+
 msgid "Run the crawl4tools MCP server."
 msgstr "crawl4tools の MCP サーバーを起動します。"
 
@@ -402,6 +428,74 @@ msgstr "バイナリの内容(形式不明、{size} バイト)は含めていま
 #, python-brace-format
 msgid "{url} -> {path} ({size} bytes)"
 msgstr "{url} -> {path}({size} バイト)"
+
+#, python-brace-format
+msgid "'{path}' is reserved for the health check"
+msgstr "'{path}' はヘルスチェック用に予約されています"
+
+msgid "Serve the Open WebUI web loader and MCP from one process."
+msgstr "Open WebUI の web loader と MCP を 1 つのプロセスから提供します。"
+
+msgid "Host to listen on (both ports)."
+msgstr "待ち受けるホストです(両方のポート)。"
+
+msgid "Open WebUI web loader port."
+msgstr "Open WebUI の web loader が使うポートです。"
+
+msgid "HTTP path the Open WebUI web loader listens on."
+msgstr "Open WebUI の web loader が待ち受ける HTTP パスです。"
+
+msgid ""
+"Require 'Authorization: Bearer <key>' on the web loader (Open WebUI's "
+"External Web Loader API Key)."
+msgstr "web loader で 'Authorization: Bearer <key>' を必須にします(Open WebUI の External Web Loader API Key)。"
+
+msgid "Keep only the main content of each page (crawl4ai content filter)."
+msgstr "各ページの本文だけを残します(crawl4ai のコンテンツフィルタ)。"
+
+msgid "MCP Streamable HTTP port."
+msgstr "MCP の Streamable HTTP ポートです。"
+
+msgid "HTTP path to serve the MCP endpoint at."
+msgstr "MCP エンドポイントを提供する HTTP パスです。"
+
+msgid ""
+"Default per-URL timeout in seconds, for web loader requests and MCP tool "
+"calls that omit timeout_s."
+msgstr "URL ごとのタイムアウト(秒)の既定値です。web loader のリクエストと、timeout_s を省略した MCP ツール呼び出しで使います。"
+
+msgid "Maximum number of URLs fetched at once across both ports."
+msgstr "両方のポートを通じて同時に取得する URL の最大数です。"
+
+msgid ""
+"Maximum number of URLs accepted in one web loader request or MCP tool "
+"call (Open WebUI sends up to 20)."
+msgstr "1 回の web loader リクエストまたは MCP ツール呼び出しで受け付ける URL の最大数です(Open WebUI は最大 20 件送信します)。"
+
+msgid "Root directory the MCP download tool saves files into."
+msgstr "MCP の download ツールがファイルを保存するルートディレクトリです。"
+
+msgid ""
+"YAML or JSON config file; command-line options and CRAWL4SERVER_* "
+"environment variables take precedence."
+msgstr "YAML または JSON の設定ファイルです。コマンドラインのオプションと CRAWL4SERVER_* 環境変数が優先されます。"
+
+msgid "--loader-port and --mcp-port must differ"
+msgstr "--loader-port と --mcp-port は異なる値にしてください"
+
+msgid ""
+"the MCP endpoint has no authentication on a non-loopback host; anyone who"
+" can reach it can use this server"
+msgstr "MCP エンドポイントはループバック以外のホストで認証なしになっています。到達できる人は誰でもこのサーバーを使えます"
+
+msgid ""
+"the web loader has no authentication either; set --loader-api-key to "
+"require one"
+msgstr "web loader も認証なしです。認証を必須にするには --loader-api-key を指定してください"
+
+#, python-brace-format
+msgid "serving Open WebUI web loader on {url}"
+msgstr "{url} で Open WebUI の web loader を提供しています"
 
 #, python-brace-format
 msgid "concurrency must be at least 1, got {value}"
