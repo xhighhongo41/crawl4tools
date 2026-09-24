@@ -1,0 +1,39 @@
+# crawl4tools server (crawl4server): Open WebUI external web loader + MCP.
+#
+# Open WebUI: Admin Settings > Web Search > Web Loader Engine = "external",
+# URL = http://<host>:8766/crawl (or http://crawl4tools:8766/crawl when
+# Open WebUI runs in this same compose project), API key = the value set
+# for CRAWL4SERVER_LOADER_API_KEY below.
+#
+# MCP (Streamable HTTP): http://<host>:8765/mcp — this endpoint has no
+# authentication, so do not publish port 8765 beyond a trusted network.
+#
+# Before first run: mkdir -p downloads (must be writable by uid 1000, the
+# "crawl" user the container runs as).
+
+services:
+  crawl4tools:
+    build: .
+    image: crawl4tools:0.3.0
+    ports:
+      - "8766:8766"
+      - "8765:8765"
+    environment:
+      # Every crawl4server CLI option also reads an env var named
+      # CRAWL4SERVER_<OPTION_UPPER_SNAKE>; CRAWL4SERVER_HOST below mirrors
+      # the --host already passed in the Dockerfile's CMD, kept here as a
+      # harmless, real example of the naming scheme.
+      CRAWL4SERVER_HOST: "0.0.0.0"
+      # CRAWL4SERVER_LOADER_API_KEY: change-me
+      # CRAWL4SERVER_PROXY: socks5://host:1080
+      # CRAWL4SERVER_CONCURRENCY: "3"
+      # CRAWL4SERVER_MAX_URLS: "20"
+      # CRAWL4SERVER_TIMEOUT: "60"
+    volumes:
+      # Host directory for downloaded/converted output; create it first
+      # (mkdir -p downloads) and make sure uid 1000 can write to it.
+      - ./downloads:/data/downloads
+    # Chromium needs more than Docker's default 64m /dev/shm to avoid
+    # crashing on larger pages.
+    shm_size: "1gb"
+    restart: unless-stopped

@@ -147,6 +147,7 @@ def page_meta(outcome: FetchOutcome, url: str) -> dict[str, object]:
     return {
         "url": url,
         "final_url": outcome.final_url,
+        "title": outcome.title,
         "ok": outcome.ok,
         "status_code": outcome.status_code,
         "content_kind": str(outcome.content_kind),

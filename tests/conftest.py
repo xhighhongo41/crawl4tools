@@ -38,6 +38,7 @@ def make_result(**overrides: Any) -> SimpleNamespace:
         "redirected_url": None,
         "html": _DEFAULT_HTML,
         "markdown": markdown,
+        "metadata": {"title": "Example Domain"},
         "response_headers": {"content-type": "text/html"},
         "pdf": None,
         "screenshot": None,

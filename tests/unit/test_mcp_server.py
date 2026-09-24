@@ -15,7 +15,8 @@ from mcp.types import CallToolResult, ImageContent, TextContent
 from crawl4tools.engine.fetcher import Fetcher
 from crawl4tools.engine.models import FetchOptions
 from crawl4tools.engine.naming import filename_for
-from crawl4tools.server import ServerSettings, build_server
+from crawl4tools.server import ServerSettings, build_server, fetch_all, open_state
+from crawl4tools.server.mcp_server import ServerState
 
 URL = "https://example.com/page"
 URL2 = "https://example.com/other"
@@ -472,3 +473,109 @@ async def test_download_duplicates_and_same_name(tmp_path: Path) -> None:
     paths = [record["path"] for record in data["files"]]
     assert len(set(paths)) == len(paths) == 2
     assert len(crawler.calls) == 2
+
+
+# --- shared state (open_state / build_server(state=) / fetch_all) ----------------
+
+
+def fake_factory(crawler: FakeCrawler) -> Any:
+    """Return a fetcher factory whose Fetcher uses *crawler*."""
+
+    def factory(options: FetchOptions) -> Fetcher:
+        return Fetcher(options, crawler_factory=crawler.factory, http_client_factory=FakeHttp())
+
+    return factory
+
+
+class StaggeredCrawler(FakeCrawler):
+    """A FakeCrawler that waits a per-URL delay before answering."""
+
+    def __init__(self, delays: dict[str, float]) -> None:
+        super().__init__()
+        self.delays = delays
+
+    async def arun(self, url: str, config: Any) -> Any:
+        await asyncio.sleep(self.delays.get(url, 0.0))
+        return await super().arun(url, config)
+
+
+async def test_open_state_caps_concurrency_and_closes_fetcher(tmp_path: Path) -> None:
+    crawler = FakeCrawler(delay=0.02)
+    settings = ServerSettings(download_root=tmp_path, concurrency=3)
+    urls = [f"https://example.com/{i}" for i in range(7)]
+    async with open_state(settings, fake_factory(crawler)) as state:
+        assert isinstance(state, ServerState)
+        assert state.settings is settings
+        outcomes = await fetch_all(state, urls, settings.fetch_options())
+        assert all(outcome.ok for outcome in outcomes)
+        assert crawler.exited == 0
+    assert crawler.max_in_flight == 3
+    assert crawler.exited == 1
+
+
+async def test_build_server_with_shared_state_does_not_close_it(tmp_path: Path) -> None:
+    crawler = FakeCrawler()
+    settings = ServerSettings(download_root=tmp_path)
+
+    def unused_factory(options: FetchOptions) -> Fetcher:
+        raise AssertionError("fetcher_factory must not be called when state is given")
+
+    async with open_state(settings, fake_factory(crawler)) as state:
+        server = build_server(settings, fetcher_factory=unused_factory, state=state)
+        result = await call(server, "fetch", {"urls": [URL]})
+        assert not result.is_error
+        assert [url for url, _ in crawler.calls] == [URL]
+        # The client session has ended, but the shared fetcher stays open.
+        assert crawler.exited == 0
+        result = await call(server, "fetch", {"urls": [URL2]})
+        assert not result.is_error
+        assert [url for url, _ in crawler.calls] == [URL, URL2]
+        assert crawler.factory_calls == 1
+        assert crawler.exited == 0
+    assert crawler.exited == 1
+
+
+async def test_shared_state_caps_concurrency_across_servers(tmp_path: Path) -> None:
+    crawler = FakeCrawler(delay=0.02)
+    settings = ServerSettings(download_root=tmp_path, concurrency=2)
+    urls = [f"https://example.com/{i}" for i in range(5)]
+    async with open_state(settings, fake_factory(crawler)) as state:
+        first = build_server(settings, state=state)
+        second = build_server(settings, state=state)
+        first_result, second_result, direct = await asyncio.gather(
+            call(first, "fetch", {"urls": urls}),
+            call(second, "fetch", {"urls": urls}),
+            fetch_all(state, urls, settings.fetch_options()),
+        )
+    assert not first_result.is_error
+    assert not second_result.is_error
+    assert all(outcome.ok for outcome in direct)
+    assert len(crawler.calls) == 15
+    assert crawler.max_in_flight == 2
+
+
+async def test_fetch_all_keeps_input_order_and_reports_done(tmp_path: Path) -> None:
+    urls = ["https://example.com/slow", "https://example.com/mid", "https://example.com/fast"]
+    crawler = StaggeredCrawler({urls[0]: 0.06, urls[1]: 0.03, urls[2]: 0.0})
+    settings = ServerSettings(download_root=tmp_path, concurrency=3)
+    events: list[tuple[str, int, int]] = []
+
+    async def on_done(url: str, done: int, total: int) -> None:
+        events.append((url, done, total))
+
+    async with open_state(settings, fake_factory(crawler)) as state:
+        outcomes = await fetch_all(state, urls, settings.fetch_options(), on_done)
+    assert [outcome.url for outcome in outcomes] == urls
+    assert events == [(urls[2], 1, 3), (urls[1], 2, 3), (urls[0], 3, 3)]
+
+
+async def test_fetch_all_empty(tmp_path: Path) -> None:
+    settings = ServerSettings(download_root=tmp_path)
+    events: list[tuple[str, int, int]] = []
+
+    async def on_done(url: str, done: int, total: int) -> None:
+        events.append((url, done, total))
+
+    async with open_state(settings, fake_factory(FakeCrawler())) as state:
+        assert await fetch_all(state, [], settings.fetch_options(), on_done) == []
+    assert events == []

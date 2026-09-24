@@ -736,7 +736,7 @@ pdf = [
 
 [[package]]
 name = "crawl4tools"
-version = "0.2.0"
+version = "0.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
@@ -745,6 +745,8 @@ dependencies = [
     { name = "mcp" },
     { name = "pydantic" },
     { name = "pyyaml" },
+    { name = "starlette" },
+    { name = "uvicorn" },
 ]
 
 [package.dev-dependencies]
@@ -764,8 +766,9 @@ requires-dist = [
     { name = "mcp", specifier = ">=2.2,<3" },
     { name = "pydantic", specifier = ">=2.12" },
     { name = "pyyaml", specifier = ">=6" },
+    { name = "starlette", specifier = ">=1.7" },
+    { name = "uvicorn", specifier = ">=0.53" },
 ]
-provides-extras = ["server"]
 
 [package.metadata.requires-dev]
 dev = [

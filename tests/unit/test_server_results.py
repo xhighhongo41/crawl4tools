@@ -297,6 +297,7 @@ def test_page_meta_success() -> None:
     assert meta == {
         "url": "https://example.com/",
         "final_url": "https://example.com/",
+        "title": None,
         "ok": True,
         "status_code": 200,
         "content_kind": "html",
@@ -306,6 +307,12 @@ def test_page_meta_success() -> None:
         "error": None,
         "notes": ["a note"],
     }
+
+
+def test_page_meta_includes_title() -> None:
+    outcome = _ok_text_outcome(title="Example Domain")
+    meta = page_meta(outcome, outcome.url)
+    assert meta["title"] == "Example Domain"
 
 
 def test_page_meta_failure() -> None:

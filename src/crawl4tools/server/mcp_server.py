@@ -5,13 +5,18 @@
 most one browser) lives for the whole life of the server, and a single
 semaphore caps the number of URLs fetched at once across every
 concurrent tool call.
+
+:func:`open_state` opens that shared state on its own so that several apps
+in one process (e.g. crawl4server's MCP and web loader apps) can share one
+fetcher and one semaphore: pass it to :func:`build_server` as ``state``
+and call :func:`fetch_all` with it directly.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import AsyncIterator, Callable, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Annotated, Any, Literal
@@ -40,6 +45,10 @@ logger = logging.getLogger(__name__)
 
 #: Builds the server's :class:`Fetcher` from the server-wide fetch options.
 FetcherFactory = Callable[[FetchOptions], Fetcher]
+
+#: Called after each URL of :func:`fetch_all` completes, with
+#: ``(url, done, total)``.
+ProgressCallback = Callable[[str, int, int], Awaitable[None]]
 
 #: Formats the ``fetch`` tool can return directly to the client.
 FetchFormat = Literal["markdown", "html", "screenshot"]
@@ -151,16 +160,30 @@ def _note_lines(
     return lines
 
 
-async def _fetch_all(
+@asynccontextmanager
+async def open_state(
+    settings: ServerSettings, fetcher_factory: FetcherFactory = Fetcher
+) -> AsyncIterator[ServerState]:
+    """Open the fetcher and semaphore shared by every fetch for *settings*.
+
+    The :class:`Fetcher` built by *fetcher_factory* from the server-wide
+    fetch options is closed when the context exits. The semaphore allows
+    ``settings.concurrency`` URLs in flight at once.
+    """
+    async with fetcher_factory(settings.fetch_options()) as fetcher:
+        yield ServerState(fetcher, asyncio.Semaphore(settings.concurrency), settings)
+
+
+async def fetch_all(
     state: ServerState,
-    ctx: Context[ServerState, Any],
     urls: Sequence[str],
     options: FetchOptions,
+    on_done: ProgressCallback | None = None,
 ) -> list[FetchOutcome]:
-    """Fetch *urls* concurrently under the server-wide semaphore, in input order.
+    """Fetch *urls* concurrently under the shared semaphore, in input order.
 
-    Progress is reported after each URL completes; a failure to report
-    progress is logged and never fails the fetch.
+    If *on_done* is given it is awaited after each URL completes with
+    ``(url, done, total)``, where ``done`` counts the URLs finished so far.
     """
     total = len(urls)
     done = 0
@@ -170,28 +193,57 @@ async def _fetch_all(
         async with state.semaphore:
             outcome = await state.fetcher.fetch(url, options=options)
         done += 1
-        try:
-            await ctx.report_progress(done, total, url)
-        except Exception:
-            logger.debug("could not report progress for %s", url, exc_info=True)
+        if on_done is not None:
+            await on_done(url, done, total)
         return outcome
 
     return list(await asyncio.gather(*(run(url) for url in urls)))
 
 
+async def _fetch_all(
+    state: ServerState,
+    ctx: Context[ServerState, Any],
+    urls: Sequence[str],
+    options: FetchOptions,
+) -> list[FetchOutcome]:
+    """Run :func:`fetch_all` for a tool call, reporting progress to the client.
+
+    A failure to report progress is logged and never fails the fetch.
+    """
+
+    async def report(url: str, done: int, total: int) -> None:
+        try:
+            await ctx.report_progress(done, total, url)
+        except Exception:
+            logger.debug("could not report progress for %s", url, exc_info=True)
+
+    return await fetch_all(state, urls, options, report)
+
+
 def build_server(
-    settings: ServerSettings, *, fetcher_factory: FetcherFactory = Fetcher
+    settings: ServerSettings,
+    *,
+    fetcher_factory: FetcherFactory = Fetcher,
+    state: ServerState | None = None,
 ) -> MCPServer[ServerState]:
     """Build the crawl4mcp server with its ``fetch`` and ``download`` tools.
 
-    *fetcher_factory* creates the single :class:`Fetcher` used for the life
-    of the server (tests pass one that injects fake crawlers).
+    Without *state*, the server opens its own state with :func:`open_state`
+    for the life of each lifespan: *fetcher_factory* creates the single
+    :class:`Fetcher` used (tests pass one that injects fake crawlers).
+
+    With *state*, the server uses that shared state as is and neither
+    creates nor closes a fetcher; *fetcher_factory* is then ignored and the
+    caller owns the state's lifetime.
     """
 
     @asynccontextmanager
     async def lifespan(_server: MCPServer[ServerState]) -> AsyncIterator[ServerState]:
-        async with fetcher_factory(settings.fetch_options()) as fetcher:
-            yield ServerState(fetcher, asyncio.Semaphore(settings.concurrency), settings)
+        if state is not None:
+            yield state
+            return
+        async with open_state(settings, fetcher_factory) as opened:
+            yield opened
 
     server: MCPServer[ServerState] = MCPServer(
         name="crawl4tools",

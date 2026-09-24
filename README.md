@@ -6,13 +6,13 @@
 
 crawl4tools is a web crawler built on top of the [crawl4ai](https://github.com/unclecode/crawl4ai) library. It is designed to serve three purposes:
 
-1. An HTTP server that works directly as an **Open WebUI external web loader**, returning the body of a URL as Markdown. On the Open WebUI side, this only requires setting `WEB_LOADER_ENGINE=external` and `EXTERNAL_WEB_LOADER_URL`.
+1. An HTTP server, `crawl4server`, that works directly as an **Open WebUI external web loader**, returning the body of a URL as Markdown. On the Open WebUI side, this only requires setting Web Loader Engine to `external` and the External Web Loader URL in the admin UI (or the equivalent `WEB_LOADER_ENGINE=external` and `EXTERNAL_WEB_LOADER_URL` environment variables).
 2. An **MCP server** that lets AI agents such as Claude Code fetch the **full content** of a web page, rather than a summary.
 3. A **local CLI** that downloads a given URL (or multiple URLs at once) as Markdown or other formats.
 
 ## Status
 
-**Alpha.** This release (0.2.0) provides the local CLI, `crawl4cli`, and the MCP server, `crawl4mcp`. The Open WebUI loader is not implemented yet.
+**Alpha.** This release (0.3.0) provides the local CLI `crawl4cli`, the MCP server `crawl4mcp`, and the combined Open WebUI web loader + MCP server `crawl4server`, with a Dockerfile and compose file.
 
 ## Features
 
@@ -31,10 +31,18 @@ Available now (MCP server):
 - Proxy support with a direct-connection fallback, configured on the server side
 - Settings via command-line options, `CRAWL4MCP_*` environment variables, or a YAML/JSON config file
 
+Available now (Open WebUI web loader, `crawl4server`):
+
+- `POST /crawl` accepts `{"urls": [...]}` and returns Markdown plus metadata (source, URL, title, status code, content type) for each page Open WebUI can use; invalid or failing URLs are simply left out of the response instead of failing the whole batch
+- Serves the same MCP endpoint as `crawl4mcp` on a second port, sharing one headless browser and one concurrency limit with the web loader
+- `GET /health` for liveness checks, and an optional bearer API key on the web loader endpoint
+- Settings via command-line options, `CRAWL4SERVER_*` environment variables, or a YAML/JSON config file
+- Dockerfile and compose file for running the server in a container
+
 Planned:
 
-- Open WebUI external web loader
-- Docker Compose operation
+- Prebuilt Docker image on a registry
+- Authentication for the MCP endpoint
 - Fallback to a direct connection when SSL bumping by the proxy breaks the result
 
 ## Installation
@@ -46,11 +54,11 @@ uv tool install --with-executables-from playwright git+https://github.com/xhighh
 playwright install chromium   # downloads the headless browser (once)
 ```
 
-This installs both `crawl4cli` and `crawl4mcp`.
+This installs `crawl4cli`, `crawl4mcp`, and `crawl4server`.
 
 The browser is stored in Playwright's cache directory (for example `~/Library/Caches/ms-playwright` on macOS). crawl4ai also creates a `~/.crawl4ai` directory for its own data.
 
-Docker Compose operation is planned but not available yet.
+To run `crawl4server` in a container instead, see [Docker](#docker) below.
 
 ## Usage
 
@@ -78,9 +86,84 @@ crawl4cli --proxy http://proxy.local:8080 URL     # through a proxy
 
 Only the document goes to stdout; notes, errors, and the summary go to stderr. File names are derived from the URL (`https://example.com/a/b` → `example.com_a_b.md`). The exit code is 0 when every URL succeeded, 1 when any failed, and 2 for invalid arguments. Every option can also be set with an environment variable named `CRAWL4CLI_<OPTION>`, for example `CRAWL4CLI_PROXY`. The standard `HTTP_PROXY`/`HTTPS_PROXY` variables are not used.
 
+## Open WebUI web loader (crawl4server)
+
+`crawl4server` runs a single process that serves both an Open WebUI external web loader and an MCP server, on two separate ports, sharing one headless browser and one concurrency limit (`-j`) between them.
+
+### Running
+
+```sh
+crawl4server
+```
+
+By default this listens on `127.0.0.1:8766` for the web loader (`POST /crawl`, `GET /health`) and `127.0.0.1:8765` for MCP (`/mcp`).
+
+### Connecting Open WebUI
+
+In Open WebUI (0.11.x or later), under Admin Settings > Web Search, set:
+
+- **Web Loader Engine**: `external`
+- **External Web Loader URL**: `http://<host>:8766/crawl`
+- **External Web Loader API Key**: the value passed to `--loader-api-key` (leave empty if none)
+
+The equivalent environment variables on the Open WebUI side are `WEB_LOADER_ENGINE=external`, `EXTERNAL_WEB_LOADER_URL`, and `EXTERNAL_WEB_LOADER_API_KEY`.
+
+Open WebUI posts `{"urls": [...]}` to that URL and gets back a JSON array of `{"page_content": <Markdown>, "metadata": {"source", "url", "title", "status_code", "content_type"}}` documents. URLs that are invalid or fail are simply left out of the response (and logged to the server's stderr), so one bad URL never drops the whole batch. Open WebUI does not time out these requests itself, so tune `--timeout` and `-j`/`--concurrency` if searches feel slow.
+
+### Options
+
+| Option | Meaning |
+|---|---|
+| `--host` | Host to listen on, both ports (default: `127.0.0.1`) |
+| `--loader-port` | Web loader port (default: `8766`) |
+| `--loader-path` | HTTP path of the web loader endpoint (default: `/crawl`) |
+| `--loader-api-key KEY` | Require `Authorization: Bearer KEY` on the web loader (Open WebUI's External Web Loader API Key) |
+| `--loader-fit` / `--no-loader-fit` | Keep only the main content of each page (default: off, full-page Markdown) |
+| `--mcp-port` | MCP Streamable HTTP port (default: `8765`) |
+| `--mcp-path` | HTTP path of the MCP endpoint (default: `/mcp`) |
+| `--proxy URL` | `http://`, `https://`, or `socks5://` proxy; credentials as `user:pass@host:port` |
+| `--no-fallback` | Do not retry over a direct connection when the proxy fails |
+| `--timeout SECONDS` | Default per-URL timeout, for web loader requests and MCP tool calls that omit `timeout_s` (default: 60) |
+| `-j, --concurrency N` | Maximum URLs fetched at once across both ports (default: 3) |
+| `--max-urls N` | Maximum URLs accepted per web loader request or MCP tool call; Open WebUI sends up to 20, so keep this at 20 or more (default: 20) |
+| `--download-dir DIR` | Root directory the MCP `download` tool saves files into (default: current directory) |
+| `--config FILE` | YAML or JSON config file (see Configuration below) |
+| `-v, --verbose` | Verbose logging on stderr |
+
+### Configuration
+
+Settings are resolved in this order: command-line options > `CRAWL4SERVER_*` environment variables (for example `CRAWL4SERVER_LOADER_API_KEY`) > config file (`--config` or `CRAWL4SERVER_CONFIG`) > built-in defaults. Config file keys are the same option names in snake_case:
+
+```yaml
+host: 0.0.0.0
+loader_port: 8766
+loader_api_key: change-me
+mcp_port: 8765
+max_urls: 20
+concurrency: 3
+```
+
+### Docker
+
+The repository ships a `Dockerfile` and `compose.yaml` (no image is published to a registry yet, so build it locally):
+
+```sh
+git clone https://github.com/xhighhongo41/crawl4tools
+cd crawl4tools
+mkdir -p downloads
+docker compose up -d --build
+curl http://localhost:8766/health
+```
+
+Set `CRAWL4SERVER_LOADER_API_KEY` in `compose.yaml`'s `environment` section. The container runs as uid 1000, so `downloads/` must be writable by it; `shm_size: 1gb` is set for Chromium. When Open WebUI runs in the same compose project, point it at `http://crawl4tools:8766/crawl` instead of `localhost`.
+
+### Security
+
+The web loader checks the API key only when `--loader-api-key` is set; the MCP port has no authentication at all. When listening on a non-loopback host (as in the Docker setup), set a loader API key and do not expose the MCP port beyond a trusted network — `crawl4server` prints a warning to stderr at startup in that case.
+
 ## MCP server
 
-`crawl4mcp` exposes the same fetching engine as an [MCP](https://modelcontextprotocol.io/) server, with two tools: `fetch` (return content directly) and `download` (save it to files).
+`crawl4mcp` exposes the same fetching engine as an [MCP](https://modelcontextprotocol.io/) server, with two tools: `fetch` (return content directly) and `download` (save it to files). `crawl4server` (above) serves this same MCP endpoint alongside the Open WebUI web loader, from one process.
 
 ### Connecting a client
 

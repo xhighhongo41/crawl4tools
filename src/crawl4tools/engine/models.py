@@ -84,3 +84,5 @@ class FetchOutcome:
     suggested_extension: str = ".md"
     error: FetchError | None = None
     notes: list[str] = field(default_factory=list)
+    # The page's <title>, when the fetch produced one (HTML pages only).
+    title: str | None = None
