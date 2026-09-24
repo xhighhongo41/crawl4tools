@@ -112,3 +112,31 @@ def test_all_errors_are_fetch_errors() -> None:
         NonHtmlContentError,
     ):
         assert issubclass(cls, FetchError)
+
+
+_CRAWL4AI_WRAPPED = (
+    "Unexpected error in _crawl_web at line 778 in _crawl_web (x/async_crawler_strategy.py):\n"
+    "Error: Failed on navigating ACS-GOTO:\n"
+    "Page.goto: net::ERR_UNSAFE_PORT at http://127.0.0.1:9/\n"
+    "Call log:\n"
+)
+
+
+def test_other_error_prefers_chromium_net_error_code() -> None:
+    error = FetchError("http://127.0.0.1:9/", _CRAWL4AI_WRAPPED)
+    assert str(error) == "fetch failed: net::ERR_UNSAFE_PORT: http://127.0.0.1:9/"
+
+
+def test_other_error_skips_crawl4ai_wrapper_lines() -> None:
+    detail = (
+        "Unexpected error in _crawl_web at line 1 in f (x.py):\n"
+        "Error: Failed on navigating ACS-GOTO:\n"
+        "Page.goto: something odd happened\n"
+    )
+    error = FetchError("https://e.com/", detail)
+    assert str(error) == "fetch failed: Page.goto: something odd happened: https://e.com/"
+
+
+def test_other_error_keeps_single_line_detail() -> None:
+    detail = "Blocked by anti-bot protection: Cloudflare JS challenge"
+    assert str(FetchError("https://e.com/", detail)) == f"fetch failed: {detail}: https://e.com/"

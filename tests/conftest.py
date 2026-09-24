@@ -6,6 +6,7 @@ Nothing here starts a real browser or touches the network.
 from __future__ import annotations
 
 import asyncio
+import os
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from types import SimpleNamespace, TracebackType
@@ -163,3 +164,13 @@ class FakeHttp:
 def sample_pdf() -> bytes:
     """Return the bytes of the committed one-page sample PDF."""
     return (FIXTURES / "sample.pdf").read_bytes()
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Skip integration tests (real browser and network) unless explicitly requested."""
+    if os.environ.get("CRAWL4TOOLS_INTEGRATION") == "1":
+        return
+    skip = pytest.mark.skip(reason="set CRAWL4TOOLS_INTEGRATION=1 to run integration tests")
+    for item in items:
+        if "integration" in item.keywords:
+            item.add_marker(skip)

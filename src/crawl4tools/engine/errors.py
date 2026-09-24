@@ -8,10 +8,33 @@ with "error: " by the caller).
 
 from __future__ import annotations
 
+import re
 from http import HTTPStatus
 
 from crawl4tools.engine.models import FailureKind
 from crawl4tools.engine.proxy import redact_proxy
+
+_NET_ERROR_RE = re.compile(r"net::ERR_[A-Z0-9_]+")
+# Wrapper lines crawl4ai puts in front of the actual Playwright error.
+_WRAPPER_PREFIXES = ("unexpected error in ", "error: failed on navigating")
+
+
+def summarize_detail(detail: str) -> str:
+    """Pick the most informative single line from a raw crawl4ai error text.
+
+    crawl4ai wraps Playwright errors in several lines of its own (source
+    location, code context), so the first line is rarely useful. Prefer a
+    Chromium ``net::ERR_*`` code, then the first line that is not one of
+    crawl4ai's wrapper lines, then the first line.
+    """
+    match = _NET_ERROR_RE.search(detail)
+    if match:
+        return match.group(0)
+    lines = [line.strip() for line in detail.splitlines() if line.strip()]
+    for line in lines:
+        if not line.lower().startswith(_WRAPPER_PREFIXES):
+            return line
+    return lines[0] if lines else ""
 
 
 class FetchError(Exception):
@@ -29,9 +52,9 @@ class FetchError(Exception):
         super().__init__(url, detail)
 
     def __str__(self) -> str:
-        if self.detail:
-            first_line = self.detail.splitlines()[0]
-            return f"fetch failed: {first_line}: {self.url}"
+        summary = summarize_detail(self.detail) if self.detail else ""
+        if summary:
+            return f"fetch failed: {summary}: {self.url}"
         return f"fetch failed: {self.url}"
 
 
