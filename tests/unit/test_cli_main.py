@@ -374,7 +374,7 @@ def test_japanese_help_shows_translated_texts() -> None:
         "プロキシ自体に問題があると見られる場合は、プロキシなしで再試行します。",
         "同時に取得する URL の最大数です。",
         "URL ごとのタイムアウト(秒)です。",
-        "Markdown に引用を付けます。",
+        "Markdown のリンクを番号付きの参照にします。",
         "Markdown からリンクを除きます。",
         "Markdown から画像を除きます。",
         "進捗と note 行を表示しません。",

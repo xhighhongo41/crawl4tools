@@ -422,7 +422,7 @@ def test_japanese_warning_and_serving_lines_keep_the_english_prefixes(
     assert result.exit_code == 0, result.output
     assert result.stderr.splitlines() == [
         "warning: 0.0.0.0:8765 で認証なしで待ち受けています。"
-        "到達できる人は誰でもこのサーバーを使えます",
+        "接続できる人は誰でもこのサーバーを使えます",
         "crawl4mcp: http://0.0.0.0:8765/mcp で MCP を提供しています",
     ]
 

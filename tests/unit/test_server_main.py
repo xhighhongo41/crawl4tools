@@ -502,7 +502,7 @@ def test_japanese_warnings_and_serving_lines_keep_the_english_prefixes(
     assert result.exit_code == 0, result.output
     assert result.stderr.splitlines() == [
         "crawl4server: warning: MCP エンドポイントはループバック以外のホストで認証なしになって"
-        "います。到達できる人は誰でもこのサーバーを使えます",
+        "います。接続できる人は誰でもこのサーバーを使えます",
         "crawl4server: warning: web loader も認証なしです。認証を必須にするには "
         "--loader-api-key を指定してください",
         "crawl4server: http://0.0.0.0:40001/crawl で Open WebUI の web loader を提供しています",
