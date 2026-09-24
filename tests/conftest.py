@@ -19,6 +19,9 @@ from crawl4tools.engine.models import FetchOptions
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
+# Variables that choose the message language of the three commands.
+_LANGUAGE_ENV_VARS = ("CRAWL4CLI_LANG", "CRAWL4MCP_LANG", "CRAWL4SERVER_LANG")
+
 _DEFAULT_HTML = "<html><body><h1>Hello</h1></body></html>"
 
 
@@ -160,6 +163,20 @@ class FakeHttp:
     def __call__(self, proxy: str | None, timeout_s: float) -> httpx.AsyncClient:
         self.client_calls.append((proxy, timeout_s))
         return httpx.AsyncClient(transport=httpx.MockTransport(self._handle), follow_redirects=True)
+
+
+@pytest.fixture(autouse=True)
+def english_messages(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make every test see English messages, whatever the machine's locale is.
+
+    The command-specific language variables are removed and ``LANGUAGE`` is
+    set to English; the CLI consults it before ``LC_ALL`` / ``LC_MESSAGES`` /
+    ``LANG``. A test that wants Japanese passes ``--lang ja`` or sets a
+    variable itself. Subprocesses started by integration tests inherit this.
+    """
+    for name in _LANGUAGE_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("LANGUAGE", "en")
 
 
 @pytest.fixture
