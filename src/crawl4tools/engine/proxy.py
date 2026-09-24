@@ -1,8 +1,9 @@
 """Proxy URL validation, redaction, and fallback policy.
 
 Kept dependency-free (stdlib only, and only :mod:`crawl4tools.engine.models`
-from this project) so :mod:`crawl4tools.engine.errors` can safely import
-:func:`redact_proxy` without creating an import cycle.
+and :mod:`crawl4tools.i18n` from this project) so
+:mod:`crawl4tools.engine.errors` can safely import :func:`redact_proxy`
+without creating an import cycle.
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ import re
 from urllib.parse import urlsplit, urlunsplit
 
 from crawl4tools.engine.models import FailureKind, FetchOptions
+from crawl4tools.i18n import N_, LocalizedError
 
 SUPPORTED_SCHEMES = ("http", "https", "socks5")
 
@@ -27,6 +29,16 @@ FALLBACK_KINDS = frozenset({FailureKind.PROXY, FailureKind.CONNECTION_REFUSED, F
 _USERINFO_RE = re.compile(r"^(?P<scheme>[a-zA-Z][a-zA-Z0-9+.-]*://)?(?P<userinfo>[^/\s]+)@")
 
 
+class ProxyUrlError(LocalizedError, ValueError):
+    """A proxy URL that cannot be used.
+
+    Its ``{proxy}`` parameter is always the redacted URL, so the message
+    never includes credentials. Also a ``ValueError``, so existing
+    ``except ValueError`` clauses keep catching it; ``str()`` is the
+    English message.
+    """
+
+
 def normalize_proxy(value: str) -> str:
     """Normalize a proxy URL, defaulting to the ``http`` scheme if omitted.
 
@@ -34,8 +46,9 @@ def normalize_proxy(value: str) -> str:
     returned value, since callers need them to actually connect.
 
     Raises:
-        ValueError: if the scheme is unsupported, or the host/port are
-            missing or invalid. The message never includes credentials.
+        ProxyUrlError: (a ``ValueError``) if the scheme is unsupported, or
+            the host/port are missing or invalid. The message never
+            includes credentials.
     """
     stripped = value.strip()
     candidate = stripped if "://" in stripped else f"http://{stripped}"
@@ -43,15 +56,21 @@ def normalize_proxy(value: str) -> str:
     scheme = parts.scheme.lower()
 
     if scheme not in SUPPORTED_SCHEMES:
-        raise ValueError(f"unsupported proxy scheme: {redact_proxy(candidate)}")
+        raise ProxyUrlError(N_("unsupported proxy scheme: {proxy}"), proxy=redact_proxy(candidate))
     if not parts.hostname:
-        raise ValueError(f"proxy URL is missing a host: {redact_proxy(candidate)}")
+        raise ProxyUrlError(
+            N_("proxy URL is missing a host: {proxy}"), proxy=redact_proxy(candidate)
+        )
     try:
         port = parts.port
     except ValueError as exc:
-        raise ValueError(f"proxy URL has an invalid port: {redact_proxy(candidate)}") from exc
+        raise ProxyUrlError(
+            N_("proxy URL has an invalid port: {proxy}"), proxy=redact_proxy(candidate)
+        ) from exc
     if port is None:
-        raise ValueError(f"proxy URL is missing a port: {redact_proxy(candidate)}")
+        raise ProxyUrlError(
+            N_("proxy URL is missing a port: {proxy}"), proxy=redact_proxy(candidate)
+        )
 
     return urlunsplit((scheme, parts.netloc, parts.path, parts.query, parts.fragment))
 

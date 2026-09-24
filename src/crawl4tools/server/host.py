@@ -24,6 +24,7 @@ from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from crawl4tools.engine.fetcher import Fetcher
+from crawl4tools.i18n import N_, LocalizedError, Translator
 from crawl4tools.server.loader import LoaderSettings, build_loader_app
 from crawl4tools.server.mcp_server import FetcherFactory, build_server, open_state
 from crawl4tools.server.settings import ServerSettings
@@ -43,15 +44,22 @@ class McpSettings:
     path: str = "/mcp"
 
 
-class ListenError(OSError):
+class ListenError(LocalizedError, OSError):
     """Raised when a listening socket cannot be set up for ``host:port``.
 
-    ``reason`` is the operating system's description of the failure; the
-    original :class:`OSError` is chained as ``__cause__``.
+    ``reason`` is the operating system's description of the failure (not
+    translated); the original :class:`OSError` is chained as ``__cause__``.
+    ``str()`` is the English message; :meth:`render` translates it. Still
+    an ``OSError``, so ``except OSError`` clauses keep catching it; its
+    ``errno`` / ``strerror`` are not set.
     """
 
     def __init__(self, host: str, port: int, reason: str) -> None:
-        super().__init__(f"cannot listen on {_address(host, port)}: {reason}")
+        super().__init__(
+            N_("cannot listen on {address}: {reason}"),
+            address=_address(host, port),
+            reason=reason,
+        )
         self.host = host
         self.port = port
         self.reason = reason
@@ -126,13 +134,15 @@ def _close_all(sockets: Sequence[socket.socket]) -> None:
 class PortDispatcher:
     """An ASGI app routing each connection by the local port it arrived on.
 
-    Requests to a port without an app answer 404 JSON (websockets are
-    closed). Lifespan events are acknowledged immediately: the host runs
-    the apps' shared resources itself.
+    Requests to a port without an app answer 404 JSON whose ``error``
+    value is translated by *t* (websockets are closed). Lifespan events are
+    acknowledged immediately: the host runs the apps' shared resources
+    itself.
     """
 
-    def __init__(self, apps: Mapping[int, ASGIApp]) -> None:
+    def __init__(self, apps: Mapping[int, ASGIApp], t: Translator) -> None:
         self.apps = dict(apps)
+        self.t = t
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         """Dispatch *scope* to the app of its local port."""
@@ -146,7 +156,8 @@ class PortDispatcher:
         elif scope["type"] == "websocket":
             await send({"type": "websocket.close", "code": 1008})
         else:
-            await JSONResponse({"error": "not found"}, status_code=404)(scope, receive, send)
+            body = {"error": self.t.gettext("not found")}
+            await JSONResponse(body, status_code=404)(scope, receive, send)
 
     @staticmethod
     async def _lifespan(receive: Receive, send: Send) -> None:
@@ -218,7 +229,9 @@ async def serve_async(
             mcp_server = build_server(settings, state=state)
             mcp_app = mcp_server.streamable_http_app(streamable_http_path=mcp.path, host=host)
             loader_app = build_loader_app(state, loader)
-            app = PortDispatcher({ports["loader"]: loader_app, ports["mcp"]: mcp_app})
+            app = PortDispatcher(
+                {ports["loader"]: loader_app, ports["mcp"]: mcp_app}, settings.translator
+            )
             async with mcp_server.session_manager.run():
                 config = uvicorn.Config(
                     app,

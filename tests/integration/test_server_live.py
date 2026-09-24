@@ -15,6 +15,9 @@ import pytest
 from mcp.client.client import Client
 from mcp.types import TextContent
 
+from crawl4tools import __version__
+from crawl4tools.i18n import get_translator
+
 pytestmark = pytest.mark.integration
 
 _MAIN = [sys.executable, "-m", "crawl4tools.server.server_main"]
@@ -146,3 +149,28 @@ async def test_loader_api_key_is_enforced(start_server: Callable[..., Running]) 
     returncode, stdout, stderr = server.stop()
     assert returncode == 0
     assert key not in stdout + stderr
+
+
+async def test_japanese_server_answers_in_japanese(start_server: Callable[..., Running]) -> None:
+    ja = get_translator("ja")
+    server = start_server("--lang", "ja")
+    async with httpx.AsyncClient(timeout=60) as http:
+        missing = await http.get(f"{server.loader}/nope")
+        health = await http.get(f"{server.loader}/health")
+    hint = ja.gettext('POST {path} with {{"urls": [...]}}').format(path="/crawl")
+    assert ja.gettext("not found") != "not found"
+    assert missing.status_code == 404
+    assert missing.json() == {"error": ja.gettext("not found"), "hint": hint}
+    assert health.json() == {"status": "ok", "version": __version__}
+
+    async with Client(server.mcp) as client:
+        tools = await client.list_tools()
+    titles = {tool.name: tool.title for tool in tools.tools}
+    assert titles["fetch"] == ja.gettext("Fetch web pages")
+
+    returncode, _, stderr = server.stop()
+    assert returncode == 0
+    serving = ja.gettext("serving Open WebUI web loader on {url}").format(
+        url=f"{server.loader}/crawl"
+    )
+    assert f"crawl4server: {serving}" in stderr.splitlines()

@@ -12,7 +12,7 @@ crawl4tools は [crawl4ai](https://github.com/unclecode/crawl4ai) ライブラ�
 
 ## 現状
 
-**Alpha。** このリリース(0.3.0)ではローカルCLI `crawl4cli`、MCPサーバー `crawl4mcp`、Open WebUI Web loader と MCP を兼ねる `crawl4server` が使えます。Dockerfile と compose ファイルも用意されています。
+**Alpha。** このリリース(0.4.0)ではローカルCLI `crawl4cli`、MCPサーバー `crawl4mcp`、Open WebUI Web loader と MCP を兼ねる `crawl4server` が使えます。Dockerfile と compose ファイルも用意されています。メッセージは英語・日本語のどちらでも表示できます。
 
 ## 機能
 
@@ -22,6 +22,7 @@ crawl4tools は [crawl4ai](https://github.com/unclecode/crawl4ai) ライブラ�
 - PDF は Markdown に文字起こし。画像などHTML以外のファイルはそのまま保存
 - HTTPエラー、ホスト名の解決失敗、接続拒否、タイムアウト、ブラウザ未導入を区別した分かりやすいエラーメッセージ
 - HTTP/HTTPS/SOCKS5 プロキシ経由のダウンロード。プロキシ自体の障害時は直接通信で1回だけ再試行
+- メッセージは英語・日本語のどちらでも表示可能([メッセージの言語](#メッセージの言語)参照)
 
 利用できるもの(MCPサーバー):
 
@@ -30,6 +31,7 @@ crawl4tools は [crawl4ai](https://github.com/unclecode/crawl4ai) ライブラ�
 - stdio(既定)と Streamable HTTP の両トランスポートに対応
 - サーバー側で設定するプロキシと直接通信へのフォールバック
 - 設定はコマンドラインオプション、`CRAWL4MCP_*` 環境変数、YAML/JSON設定ファイルのいずれでも可能
+- メッセージは英語・日本語のどちらでも表示可能([メッセージの言語](#メッセージの言語)参照)
 
 利用できるもの(Open WebUI Web loader、`crawl4server`):
 
@@ -38,6 +40,7 @@ crawl4tools は [crawl4ai](https://github.com/unclecode/crawl4ai) ライブラ�
 - 死活監視用の `GET /health` と、Web loaderエンドポイント向けの任意のbearer APIキー
 - 設定はコマンドラインオプション、`CRAWL4SERVER_*` 環境変数、YAML/JSON設定ファイルのいずれでも可能
 - コンテナで動かすための Dockerfile と compose ファイル
+- メッセージは英語・日本語のどちらでも表示可能([メッセージの言語](#メッセージの言語)参照)
 
 予定:
 
@@ -83,6 +86,7 @@ crawl4cli --proxy http://proxy.local:8080 URL     # プロキシ経由
 | `--citations` | リンクを番号付き参照にし、末尾に一覧を付ける |
 | `--no-links`, `--no-images` | Markdown からリンクや画像参照を除く |
 | `-q, --quiet` / `-v, --verbose` | 標準エラーへの出力を減らす/増やす |
+| `--lang en\|ja` | メッセージの言語(既定: OSのロケールに従う。[メッセージの言語](#メッセージの言語)を参照) |
 
 標準出力に出るのは本文だけで、通知・エラー・要約は標準エラーに出ます。ファイル名はURLから作られます(`https://example.com/a/b` → `example.com_a_b.md`)。終了コードは、全URL成功で 0、1件でも失敗で 1、引数の誤りで 2 です。すべてのオプションは `CRAWL4CLI_<OPTION>` という名前の環境変数でも指定できます(例: `CRAWL4CLI_PROXY`)。標準の `HTTP_PROXY`/`HTTPS_PROXY` 環境変数は使いません。
 
@@ -129,6 +133,7 @@ Open WebUI はこのURLに `{"urls": [...]}` をPOSTし、`{"page_content": <Mar
 | `--download-dir DIR` | MCPの `download` ツールの保存先ルートディレクトリ(既定: カレントディレクトリ) |
 | `--config FILE` | YAMLまたはJSONの設定ファイル(下記「設定」を参照) |
 | `-v, --verbose` | 標準エラーへの詳細ログ出力 |
+| `--lang en\|ja` | サーバーが動作中に出力するメッセージの言語(既定: 英語。[メッセージの言語](#メッセージの言語)を参照) |
 
 ### 設定
 
@@ -141,6 +146,7 @@ loader_api_key: change-me
 mcp_port: 8765
 max_urls: 20
 concurrency: 3
+lang: ja
 ```
 
 ### Docker
@@ -228,6 +234,7 @@ Streamable HTTP に対応する他のクライアント(例: Open WebUI の MCP�
 | `--download-dir DIR` | `download` ツールの保存先ルートディレクトリ(既定: カレントディレクトリ) |
 | `--config FILE` | YAMLまたはJSONの設定ファイル(下記「設定」を参照) |
 | `-v, --verbose` | 標準エラーへの詳細ログ出力 |
+| `--lang en\|ja` | サーバーが動作中に出力するメッセージの言語(既定: 英語。[メッセージの言語](#メッセージの言語)を参照) |
 
 ### 設定
 
@@ -245,6 +252,7 @@ max_urls: 50
 concurrency: 5
 download_dir: ./downloads
 proxy: http://proxy.local:8080
+lang: ja
 ```
 
 設定ファイル内の相対パス(`download_dir` など)は、サーバーを起動したカレントディレクトリを基準に解決されます。
@@ -252,6 +260,25 @@ proxy: http://proxy.local:8080
 ### セキュリティ
 
 Streamable HTTP トランスポートには認証機能がありません。既定ではサーバーは `127.0.0.1` のみで待ち受けますが、他のホストにバインドすると、そのポートに到達できる誰もがサーバーを利用できてしまいます。この場合 `crawl4mcp` は起動時に標準エラーへ警告を出力します。stdioモードでは標準出力はMCPプロトコル専用であり、ログはすべて標準エラーに出力されます。
+
+## メッセージの言語
+
+3つのコマンドはいずれも、メッセージを英語(`en`)または日本語(`ja`)で表示できます。
+
+言語は `--lang` オプション、環境変数(`CRAWL4CLI_LANG`、`CRAWL4MCP_LANG`、`CRAWL4SERVER_LANG`)、または2つのサーバーについては設定ファイルの `lang` キーで指定できます。複数指定された場合は、オプションが最優先、次に環境変数、最後に設定ファイルの順で解決されます。
+
+既定値: `crawl4cli` はOSのロケール(`LANGUAGE`、`LC_ALL`、`LC_MESSAGES`、`LANG` の順に最初に設定されているもの)に従い、値が `ja` で始まる場合(例: `LANG=ja_JP.UTF-8`)は日本語、それ以外は英語になります。`crawl4mcp` と `crawl4server` はロケールの影響を受けず、常に既定で英語になります。これにより、コンテナやMCPクライアントは安定した出力を得られます。
+
+```sh
+crawl4cli --lang ja https://example.com/
+CRAWL4SERVER_LANG=ja crawl4server
+```
+
+翻訳対象は `--help` の内容、エラーメッセージ、標準エラーへの通知や進捗行、MCPツールの説明文と結果テキスト、サーバーの起動時の表示・警告、Web loaderのJSONエラー応答です。`--help` は常に `--lang` または環境変数(`crawl4cli` ではロケールも)に従います。設定ファイルの `lang` はサーバー動作中に出力されるメッセージにのみ適用されます。
+
+常に英語のまま(`--lang` の影響を受けないもの): ログ出力、`error:`・`note:`・`saved:`・`done:`・`failed:` という行頭の接頭辞、JSONのキー、`<!-- crawl4tools: url=... status=... -->` というヘッダー行、`GET /health`、`--version`、click や他のライブラリが出力するもの(例: `Usage:` や `Error: Invalid value ...`)。
+
+1つのプロセスでは1つの言語のみを使用し、リクエストごとに言語を切り替えることはできません。
 
 ## 謝辞
 

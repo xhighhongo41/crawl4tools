@@ -14,7 +14,7 @@
 services:
   crawl4tools:
     build: .
-    image: crawl4tools:0.3.0
+    image: crawl4tools:0.4.0
     ports:
       - "8766:8766"
       - "8765:8765"
@@ -29,6 +29,7 @@ services:
       # CRAWL4SERVER_CONCURRENCY: "3"
       # CRAWL4SERVER_MAX_URLS: "20"
       # CRAWL4SERVER_TIMEOUT: "60"
+      # CRAWL4SERVER_LANG: ja
     volumes:
       # Host directory for downloaded/converted output; create it first
       # (mkdir -p downloads) and make sure uid 1000 can write to it.

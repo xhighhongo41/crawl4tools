@@ -4,7 +4,10 @@ from pathlib import Path
 
 import pytest
 
+from crawl4tools.i18n import LocalizedError, get_translator
 from crawl4tools.server.config import CONFIG_KEYS, ConfigError, load_config
+
+JA = get_translator("ja")
 
 
 def test_config_keys_contents() -> None:
@@ -21,6 +24,7 @@ def test_config_keys_contents() -> None:
             "max_urls",
             "download_dir",
             "verbose",
+            "lang",
         }
     )
 
@@ -126,3 +130,57 @@ def test_load_config_custom_allowed_keys_rejects(tmp_path: Path) -> None:
     message = str(info.value)
     assert "unknown config key(s): transport" in message
     assert "(allowed keys: loader_port, mcp_port, timeout)" in message
+
+
+# --- Japanese messages -------------------------------------------------------------
+
+
+def test_config_error_is_localized() -> None:
+    assert issubclass(ConfigError, LocalizedError)
+
+
+def test_missing_file_error_in_japanese(tmp_path: Path) -> None:
+    missing = tmp_path / "does-not-exist.yaml"
+    with pytest.raises(ConfigError) as info:
+        load_config(missing)
+    reason = info.value.params["reason"]
+    assert str(info.value) == f"{missing}: cannot read config file: {reason}"
+    assert info.value.render(JA) == f"{missing}: 設定ファイルを読み込めません: {reason}"
+
+
+def test_syntax_error_in_japanese(tmp_path: Path) -> None:
+    config_file = tmp_path / "broken.yaml"
+    config_file.write_text("transport: [unterminated\n", encoding="utf-8")
+    with pytest.raises(ConfigError) as info:
+        load_config(config_file)
+    reason = info.value.params["reason"]
+    assert str(info.value) == f"{config_file}: invalid YAML/JSON: {reason}"
+    assert info.value.render(JA) == f"{config_file}: YAML/JSON として不正です: {reason}"
+
+
+def test_top_level_error_in_japanese(tmp_path: Path) -> None:
+    config_file = tmp_path / "list.yaml"
+    config_file.write_text("- a\n", encoding="utf-8")
+    with pytest.raises(ConfigError) as info:
+        load_config(config_file)
+    assert str(info.value) == (
+        f"{config_file}: top level must be a mapping of option names to values"
+    )
+    assert info.value.render(JA) == (
+        f"{config_file}: 最上位はオプション名と値の対応(マッピング)にしてください"
+    )
+
+
+def test_unknown_keys_error_in_japanese(tmp_path: Path) -> None:
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text("zeta: 1\nalpha: 2\ntimeout: 3\n", encoding="utf-8")
+    with pytest.raises(ConfigError) as info:
+        load_config(config_file, allowed_keys=CUSTOM_KEYS)
+    assert str(info.value) == (
+        f"{config_file}: unknown config key(s): alpha, zeta "
+        "(allowed keys: loader_port, mcp_port, timeout)"
+    )
+    assert info.value.render(JA) == (
+        f"{config_file}: 不明な設定キーです: alpha, zeta"
+        "(使えるキー: loader_port, mcp_port, timeout)"
+    )

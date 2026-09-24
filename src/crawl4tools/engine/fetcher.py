@@ -27,6 +27,7 @@ from crawl4tools.engine.models import (
     FailureKind,
     FetchOptions,
     FetchOutcome,
+    Note,
     OutputFormat,
 )
 from crawl4tools.engine.naming import extension_for
@@ -38,6 +39,7 @@ from crawl4tools.engine.probe import (
     probe,
 )
 from crawl4tools.engine.proxy import normalize_proxy, should_fallback
+from crawl4tools.i18n import N_
 
 _PDF_MEDIA_TYPE = "application/pdf"
 _HTML_MEDIA_TYPES = frozenset({"text/html", "application/xhtml+xml"})
@@ -273,8 +275,12 @@ class Fetcher:
         ):
             return first
         second, _ = await self._attempt(url, None, options)
-        # Errors redact proxy credentials themselves, so str() is safe here.
-        second.notes.insert(0, f"proxy failed ({error}); retried with a direct connection")
+        # Errors redact proxy credentials themselves, so quoting the error is safe.
+        # It is kept as an object so it is rendered in the note's language.
+        second.notes.insert(
+            0,
+            Note(N_("proxy failed ({error}); retried with a direct connection"), {"error": error}),
+        )
         return second
 
     async def _attempt(
@@ -435,9 +441,14 @@ class Fetcher:
             fit: str = getattr(markdown, "fit_markdown", None) or ""
             if fit.startswith(_FIT_ERROR_PREFIX):
                 reason = fit[len(_FIT_ERROR_PREFIX) :].strip()
-                outcome.notes.append(f"content filter failed ({reason}); saved the full page")
+                outcome.notes.append(
+                    Note(
+                        N_("content filter failed ({reason}); saved the full page"),
+                        {"reason": reason},
+                    )
+                )
             elif not fit.strip():
-                outcome.notes.append("content filter kept nothing; saved the full page")
+                outcome.notes.append(Note(N_("content filter kept nothing; saved the full page")))
             elif options.citations:
                 return _citations(fit, outcome.final_url or outcome.url)
             else:
@@ -469,19 +480,28 @@ class Fetcher:
                 except PdfConversionError as exc:
                     outcome.data = body
                     outcome.suggested_extension = ".pdf"
-                    outcome.notes.append(
-                        f"could not convert PDF to Markdown ({exc}); saved the original file"
+                    note = Note(
+                        N_("could not convert PDF to Markdown ({error}); saved the original file"),
+                        {"error": str(exc)},
                     )
+                    outcome.notes.append(note)
                     return outcome
                 outcome.text = markdown
                 outcome.suggested_extension = ".md"
                 if not markdown:
-                    outcome.notes.append("no extractable text in PDF; saved an empty document")
+                    outcome.notes.append(
+                        Note(N_("no extractable text in PDF; saved an empty document"))
+                    )
                 return outcome
             outcome.data = body
             outcome.suggested_extension = ".pdf"
             if fmt not in (OutputFormat.RAW, OutputFormat.PDF):
-                outcome.notes.append(f"PDF saved as-is (format '{fmt}' does not apply)")
+                outcome.notes.append(
+                    Note(
+                        N_("PDF saved as-is (format '{format}' does not apply)"),
+                        {"format": fmt.value},
+                    )
+                )
             return outcome
 
         outcome.content_kind = ContentKind.BINARY
@@ -489,9 +509,14 @@ class Fetcher:
         outcome.suggested_extension = extension_for(
             OutputFormat.RAW, content_type=probed.content_type, url=probed.final_url or url
         )
-        outcome.notes.append(
-            f"not a web page ({media_type or 'unknown type'}); saved the original file"
-        )
+        if media_type:
+            note = Note(
+                N_("not a web page ({media_type}); saved the original file"),
+                {"media_type": media_type},
+            )
+        else:
+            note = Note(N_("not a web page (unknown type); saved the original file"))
+        outcome.notes.append(note)
         return outcome
 
     def _failure(

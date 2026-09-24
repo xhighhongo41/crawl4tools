@@ -371,3 +371,92 @@ async def test_wrong_method_is_405_json() -> None:
         response = await client.get("/crawl")
     assert response.status_code == 405
     assert "error" in response.json()
+
+
+async def test_english_hint_uses_single_braces() -> None:
+    """Guard against the doubled braces in the hint template leaking through."""
+    async with loader_client() as (client, _):
+        response = await client.get("/nope")
+    assert response.json()["hint"] == 'POST /crawl with {"urls": [...]}'
+
+
+# --- message language ---------------------------------------------------------
+
+_REQUEST_NOT_JSON_JA = "リクエストボディが正しい JSON ではありません"
+_REQUEST_NOT_OBJECT_JA = (
+    'リクエストボディは {"urls": [...]} のような JSON オブジェクトにしてください'
+)
+_MISSING_URLS_JA = '"urls" がありません'
+_URLS_TYPE_JA = '"urls" は文字列のリストにしてください'
+_TOO_MANY_JA = "URL が多すぎます: 3 件(1 リクエストあたり最大 2 件)"
+_UNAUTHORIZED_JA = "認証されていません"
+_NOT_FOUND_JA = "見つかりません"
+_METHOD_NOT_ALLOWED_JA = "許可されていないメソッドです"
+_HINT_JA = '/crawl に {"urls": [...]} を POST してください'
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        (b"not json", _REQUEST_NOT_JSON_JA),
+        (b"[1, 2]", _REQUEST_NOT_OBJECT_JA),
+        (b"{}", _MISSING_URLS_JA),
+        (b'{"urls": "x"}', _URLS_TYPE_JA),
+    ],
+    ids=["not-json", "not-object", "missing-urls", "wrong-type"],
+)
+async def test_crawl_bad_body_error_is_japanese(body: bytes, expected: str) -> None:
+    async with loader_client(lang="ja") as (client, _):
+        response = await client.post(
+            "/crawl", content=body, headers={"content-type": "application/json"}
+        )
+    assert response.status_code == 400
+    assert response.json() == {"error": expected}
+
+
+async def test_crawl_too_many_urls_error_is_japanese() -> None:
+    async with loader_client(lang="ja", max_urls=2) as (client, _):
+        response = await crawl(client, [URL, URL2, URL3])
+    assert response.status_code == 400
+    assert response.json() == {"error": _TOO_MANY_JA}
+
+
+async def test_crawl_unauthorized_is_japanese() -> None:
+    async with loader_client(lang="ja", loader=LoaderSettings(api_key=KEY)) as (client, _):
+        response = await crawl(client, [URL])
+    assert response.status_code == 401
+    assert response.json() == {"error": _UNAUTHORIZED_JA}
+    assert response.headers["www-authenticate"] == "Bearer"
+
+
+async def test_unknown_path_is_japanese() -> None:
+    async with loader_client(lang="ja") as (client, _):
+        response = await client.get("/nope")
+    assert response.status_code == 404
+    assert response.json() == {"error": _NOT_FOUND_JA, "hint": _HINT_JA}
+
+
+async def test_wrong_method_is_japanese() -> None:
+    async with loader_client(lang="ja") as (client, _):
+        response = await client.get("/crawl")
+    assert response.status_code == 405
+    assert response.json() == {"error": _METHOD_NOT_ALLOWED_JA, "hint": _HINT_JA}
+
+
+async def test_health_identical_regardless_of_language() -> None:
+    async with loader_client(lang="ja") as (client, _):
+        response = await client.get("/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok", "version": __version__}
+
+
+async def test_japanese_lang_keeps_english_logs_for_failed_and_invalid_urls(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.WARNING, logger="crawl4tools.server.loader")
+    crawler = FakeCrawler({URL: make_result(status_code=404), URL2: make_result()})
+    async with loader_client(lang="ja", crawler=crawler) as (client, _):
+        response = await crawl(client, [URL, URL2, "not a url"])
+    assert response.status_code == 200
+    assert "error: HTTP 404" in caplog.text
+    assert "error: invalid URL: not a url" in caplog.text

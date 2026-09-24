@@ -4,6 +4,11 @@ Pure formatting/validation helpers shared by every crawl4mcp tool: URL list
 checking, download-path resolution, human-readable content blocks, and the
 structured metadata/records returned alongside them. No network or MCP
 server code lives here.
+
+The formatting functions take the :data:`~crawl4tools.i18n.Translator` of
+the server's language. Only the messages are translated: the ``note:`` /
+``saved:`` / ``error:`` prefixes, the ``<!-- crawl4tools: ... -->`` header
+and the keys of the structured data stay in English.
 """
 
 from __future__ import annotations
@@ -17,9 +22,26 @@ from mcp.types import ImageContent, TextContent
 from crawl4tools.cli.report import error_line
 from crawl4tools.engine.models import ContentKind, FetchOutcome
 from crawl4tools.engine.naming import dedupe_urls, validate_url
+from crawl4tools.i18n import N_, LocalizedError, Translator
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+
+
+class UrlsError(LocalizedError, ValueError):
+    """The URL list of a tool call is empty, has invalid URLs, or is too long.
+
+    Also a ``ValueError``, so existing ``except ValueError`` clauses keep
+    catching it; ``str()`` is the English message.
+    """
+
+
+class DirectoryError(LocalizedError, ValueError):
+    """The download subdirectory of a tool call is absolute or escapes the root.
+
+    Also a ``ValueError``, so existing ``except ValueError`` clauses keep
+    catching it; ``str()`` is the English message.
+    """
 
 
 def check_urls(urls: Sequence[str], max_urls: int) -> tuple[list[str], list[str]]:
@@ -29,12 +51,12 @@ def check_urls(urls: Sequence[str], max_urls: int) -> tuple[list[str], list[str]
         A ``(unique, duplicates)`` pair, both in first-seen order.
 
     Raises:
-        ValueError: if *urls* is empty, contains one or more invalid URLs
-            (all of them are named in the message), or has more unique
-            URLs than *max_urls*.
+        UrlsError: (a ``ValueError``) if *urls* is empty, contains one or
+            more invalid URLs (all of them are named in the message), or
+            has more unique URLs than *max_urls*.
     """
     if not urls:
-        raise ValueError("at least one URL is required")
+        raise UrlsError(N_("at least one URL is required"))
 
     validated: list[str] = []
     invalid: list[str] = []
@@ -44,11 +66,15 @@ def check_urls(urls: Sequence[str], max_urls: int) -> tuple[list[str], list[str]
         except ValueError:
             invalid.append(url)
     if invalid:
-        raise ValueError(f"invalid URL(s): {', '.join(invalid)}")
+        raise UrlsError(N_("invalid URL(s): {urls}"), urls=", ".join(invalid))
 
     unique, duplicates = dedupe_urls(validated)
     if len(unique) > max_urls:
-        raise ValueError(f"too many URLs: {len(unique)} given, at most {max_urls} per call")
+        raise UrlsError(
+            N_("too many URLs: {count} given, at most {limit} per call"),
+            count=len(unique),
+            limit=max_urls,
+        )
     return unique, duplicates
 
 
@@ -62,7 +88,8 @@ def resolve_directory(root: Path, directory: str | None) -> Path:
     creates directories on disk.
 
     Raises:
-        ValueError: if *directory* is absolute, or resolves outside *root*.
+        DirectoryError: (a ``ValueError``) if *directory* is absolute, or
+            resolves outside *root*.
     """
     resolved_root = root.resolve()
     if not directory:
@@ -70,21 +97,29 @@ def resolve_directory(root: Path, directory: str | None) -> Path:
 
     candidate = Path(directory)
     if candidate.is_absolute():
-        raise ValueError(f"directory must be a relative path: {directory}")
+        raise DirectoryError(
+            N_("directory must be a relative path: {directory}"), directory=directory
+        )
 
     resolved = (root / directory).resolve()
     if resolved != resolved_root and not resolved.is_relative_to(resolved_root):
-        raise ValueError(f"directory must stay inside the download root: {directory}")
+        raise DirectoryError(
+            N_("directory must stay inside the download root: {directory}"), directory=directory
+        )
     return resolved
 
 
-def _header_lines(outcome: FetchOutcome, url: str, *, multiple: bool) -> list[str]:
-    """Build the ``<!-- ... -->`` comment lines prefixed to a rendered block."""
+def _header_lines(outcome: FetchOutcome, url: str, t: Translator, *, multiple: bool) -> list[str]:
+    """Build the ``<!-- ... -->`` comment lines prefixed to a rendered block.
+
+    The notes are translated by *t*; the ``crawl4tools:`` line is not, since
+    clients may parse it.
+    """
     lines: list[str] = []
     if multiple:
         status = outcome.status_code if outcome.status_code is not None else "-"
         lines.append(f"<!-- crawl4tools: url={url} status={status} -->")
-    lines.extend(f"<!-- note: {note} -->" for note in outcome.notes)
+    lines.extend(f"<!-- note: {note.render(t)} -->" for note in outcome.notes)
     return lines
 
 
@@ -108,17 +143,18 @@ def _image_mime_type(outcome: FetchOutcome) -> str | None:
 
 
 def page_blocks(
-    outcome: FetchOutcome, url: str, *, multiple: bool
+    outcome: FetchOutcome, url: str, t: Translator, *, multiple: bool
 ) -> list[TextContent | ImageContent]:
     """Render one URL's outcome as human-readable MCP content blocks.
 
     *multiple* controls whether a ``url=... status=...`` header comment is
     added, which is only useful when several URLs are rendered together.
+    Notes, errors and the binary-content message are translated by *t*.
     """
-    header_lines = _header_lines(outcome, url, multiple=multiple)
+    header_lines = _header_lines(outcome, url, t, multiple=multiple)
 
     if not outcome.ok:
-        return [TextContent(type="text", text=_with_header(header_lines, error_line(outcome)))]
+        return [TextContent(type="text", text=_with_header(header_lines, error_line(outcome, t)))]
 
     if outcome.text is not None:
         return [TextContent(type="text", text=_with_header(header_lines, outcome.text))]
@@ -134,16 +170,24 @@ def page_blocks(
         return blocks
 
     data_len = len(outcome.data) if outcome.data is not None else 0
-    content_type_display = outcome.content_type or "unknown type"
-    message = (
-        f"binary content ({content_type_display}, {data_len} bytes) was not included; "
-        f"use the download tool to save it: {url}"
-    )
+    if outcome.content_type:
+        message = t.gettext(
+            "binary content ({content_type}, {size} bytes) was not included; "
+            "use the download tool to save it: {url}"
+        ).format(content_type=outcome.content_type, size=data_len, url=url)
+    else:
+        message = t.gettext(
+            "binary content (unknown type, {size} bytes) was not included; "
+            "use the download tool to save it: {url}"
+        ).format(size=data_len, url=url)
     return [TextContent(type="text", text=_with_header(header_lines, message))]
 
 
-def page_meta(outcome: FetchOutcome, url: str) -> dict[str, object]:
-    """Return the structured metadata for one URL's outcome."""
+def page_meta(outcome: FetchOutcome, url: str, t: Translator) -> dict[str, object]:
+    """Return the structured metadata for one URL's outcome.
+
+    The ``error`` and ``notes`` values are translated by *t*; the keys are not.
+    """
     return {
         "url": url,
         "final_url": outcome.final_url,
@@ -154,19 +198,21 @@ def page_meta(outcome: FetchOutcome, url: str) -> dict[str, object]:
         "content_type": outcome.content_type,
         "chars": len(outcome.text) if outcome.text is not None else None,
         "bytes": len(outcome.data) if outcome.data is not None else None,
-        "error": str(outcome.error) if outcome.error is not None else None,
-        "notes": list(outcome.notes),
+        "error": outcome.error.render(t) if outcome.error is not None else None,
+        "notes": [note.render(t) for note in outcome.notes],
     }
 
 
 def download_record(
-    outcome: FetchOutcome, url: str, path: Path | None, error: str | None = None
+    outcome: FetchOutcome, url: str, path: Path | None, t: Translator, error: str | None = None
 ) -> dict[str, object]:
     """Return the structured record for one URL's download attempt.
 
     *path* is the path the payload was written to, or None if it was not
     written. *error* overrides ``outcome.error`` when the failure happened
-    while writing the file (rather than while fetching).
+    while writing the file (rather than while fetching); it is a message
+    the caller has already translated. ``outcome.error`` and the notes are
+    translated by *t*.
     """
     ok = outcome.ok and path is not None and error is None
     payload_bytes: int | None = None
@@ -177,7 +223,7 @@ def download_record(
             payload_bytes = len(outcome.text.encode("utf-8"))
     resolved_error = error
     if resolved_error is None and outcome.error is not None:
-        resolved_error = str(outcome.error)
+        resolved_error = outcome.error.render(t)
     return {
         "url": url,
         "ok": ok,
@@ -187,18 +233,26 @@ def download_record(
         "content_type": outcome.content_type,
         "status_code": outcome.status_code,
         "error": resolved_error,
-        "notes": list(outcome.notes),
+        "notes": [note.render(t) for note in outcome.notes],
     }
 
 
-def download_lines(record: dict[str, object]) -> list[str]:
-    """Render a download record from :func:`download_record` as report lines."""
+def download_lines(record: dict[str, object], t: Translator) -> list[str]:
+    """Render a download record from :func:`download_record` as report lines.
+
+    The notes and the error come from *record*, already translated; the
+    ``saved:`` details and the fallback error are translated by *t*. The
+    ``note:`` / ``saved:`` / ``error:`` prefixes stay in English.
+    """
     url = record["url"]
     notes = cast("list[str]", record["notes"])
     lines = [f"note: {url}: {note}" for note in notes]
     if record["ok"]:
-        lines.append(f"saved: {url} -> {record['path']} ({record['bytes']} bytes)")
+        saved = t.gettext("{url} -> {path} ({size} bytes)").format(
+            url=url, path=record["path"], size=record["bytes"]
+        )
+        lines.append(f"saved: {saved}")
     else:
-        error = record["error"] or f"fetch failed: {url}"
+        error = record["error"] or t.gettext("fetch failed: {url}").format(url=url)
         lines.append(f"error: {error}")
     return lines

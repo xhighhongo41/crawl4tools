@@ -2,8 +2,12 @@
 
 Every error carries a :class:`~crawl4tools.engine.models.FailureKind` so
 callers can decide on retries/fallback without parsing message text, and a
-user-facing ``str()`` message that the CLI can print directly (prefixed
-with "error: " by the caller).
+structured user-facing message: an English ``template`` (marked with
+:func:`~crawl4tools.i18n.N_`) and the ``params`` that fill it. ``render(t)``
+gives the message in the language of ``t``; ``str()`` gives it in English
+(for logs), and the CLI prints it prefixed with "error: ". Text that comes
+from outside (a crawl4ai error summary, an HTTP reason phrase) is a
+parameter and stays untranslated.
 """
 
 from __future__ import annotations
@@ -13,6 +17,7 @@ from http import HTTPStatus
 
 from crawl4tools.engine.models import FailureKind
 from crawl4tools.engine.proxy import redact_proxy
+from crawl4tools.i18n import ENGLISH, N_, Translator, format_message
 
 _NET_ERROR_RE = re.compile(r"net::ERR_[A-Z0-9_]+")
 # Wrapper lines crawl4ai puts in front of the actual Playwright error.
@@ -40,8 +45,9 @@ def summarize_detail(detail: str) -> str:
 class FetchError(Exception):
     """Base class for all fetch failures.
 
-    Subclasses override ``kind`` and ``__str__`` to provide a specific
-    classification and a specific user-facing message.
+    Subclasses override ``kind`` and the ``template`` / ``params``
+    properties to provide a specific classification and a specific
+    user-facing message; ``render`` and ``str()`` are shared.
     """
 
     kind: FailureKind = FailureKind.OTHER
@@ -51,11 +57,31 @@ class FetchError(Exception):
         self.detail = detail
         super().__init__(url, detail)
 
-    def __str__(self) -> str:
-        summary = summarize_detail(self.detail) if self.detail else ""
+    def _summary(self) -> str:
+        """Return the one-line summary of ``detail``, or "" when there is none."""
+        return summarize_detail(self.detail) if self.detail else ""
+
+    @property
+    def template(self) -> str:
+        """The English ``str.format`` template of the message."""
+        if self._summary():
+            return N_("fetch failed: {summary}: {url}")
+        return N_("fetch failed: {url}")
+
+    @property
+    def params(self) -> dict[str, object]:
+        """The values for the fields of :attr:`template`."""
+        summary = self._summary()
         if summary:
-            return f"fetch failed: {summary}: {self.url}"
-        return f"fetch failed: {self.url}"
+            return {"summary": summary, "url": self.url}
+        return {"url": self.url}
+
+    def render(self, t: Translator) -> str:
+        """Return the message with the template translated by ``t``."""
+        return format_message(t, self.template, self.params)
+
+    def __str__(self) -> str:
+        return self.render(ENGLISH)
 
 
 class HttpStatusError(FetchError):
@@ -74,10 +100,19 @@ class HttpStatusError(FetchError):
         self.reason = reason
         super().__init__(url, detail=reason)
 
-    def __str__(self) -> str:
+    @property
+    def template(self) -> str:
+        """The English ``str.format`` template of the message."""
         if self.reason:
-            return f"HTTP {self.status_code} {self.reason}: {self.url}"
-        return f"HTTP {self.status_code}: {self.url}"
+            return N_("HTTP {status_code} {reason}: {url}")
+        return N_("HTTP {status_code}: {url}")
+
+    @property
+    def params(self) -> dict[str, object]:
+        """The values for the fields of :attr:`template`."""
+        if self.reason:
+            return {"status_code": self.status_code, "reason": self.reason, "url": self.url}
+        return {"status_code": self.status_code, "url": self.url}
 
 
 class NameResolutionError(FetchError):
@@ -85,8 +120,15 @@ class NameResolutionError(FetchError):
 
     kind = FailureKind.NAME_RESOLUTION
 
-    def __str__(self) -> str:
-        return f"could not resolve host: {self.url}"
+    @property
+    def template(self) -> str:
+        """The English ``str.format`` template of the message."""
+        return N_("could not resolve host: {url}")
+
+    @property
+    def params(self) -> dict[str, object]:
+        """The values for the fields of :attr:`template`."""
+        return {"url": self.url}
 
 
 class ConnectionRefusedFetchError(FetchError):
@@ -94,8 +136,15 @@ class ConnectionRefusedFetchError(FetchError):
 
     kind = FailureKind.CONNECTION_REFUSED
 
-    def __str__(self) -> str:
-        return f"connection refused: {self.url}"
+    @property
+    def template(self) -> str:
+        """The English ``str.format`` template of the message."""
+        return N_("connection refused: {url}")
+
+    @property
+    def params(self) -> dict[str, object]:
+        """The values for the fields of :attr:`template`."""
+        return {"url": self.url}
 
 
 class FetchTimeoutError(FetchError):
@@ -107,15 +156,23 @@ class FetchTimeoutError(FetchError):
         self.timeout_s = timeout_s
         super().__init__(url, detail=detail)
 
-    def __str__(self) -> str:
-        return f"timed out after {self.timeout_s:g}s: {self.url}"
+    @property
+    def template(self) -> str:
+        """The English ``str.format`` template of the message."""
+        return N_("timed out after {timeout_s:g}s: {url}")
+
+    @property
+    def params(self) -> dict[str, object]:
+        """The values for the fields of :attr:`template`."""
+        return {"timeout_s": self.timeout_s, "url": self.url}
 
 
 class ProxyFetchError(FetchError):
     """The configured proxy could not be used to reach the URL.
 
     Only the redacted form of the proxy is ever stored, so credentials
-    cannot leak through ``str()``, logging, or any other representation.
+    cannot leak through ``str()``, ``render()``, logging, or any other
+    representation.
     """
 
     kind = FailureKind.PROXY
@@ -124,8 +181,15 @@ class ProxyFetchError(FetchError):
         self.proxy = redact_proxy(proxy)
         super().__init__(url, detail=detail)
 
-    def __str__(self) -> str:
-        return f"proxy connection failed ({self.proxy}): {self.url}"
+    @property
+    def template(self) -> str:
+        """The English ``str.format`` template of the message."""
+        return N_("proxy connection failed ({proxy}): {url}")
+
+    @property
+    def params(self) -> dict[str, object]:
+        """The values for the fields of :attr:`template`."""
+        return {"proxy": self.proxy, "url": self.url}
 
 
 class BrowserNotInstalledError(FetchError):
@@ -133,11 +197,18 @@ class BrowserNotInstalledError(FetchError):
 
     kind = FailureKind.BROWSER_NOT_INSTALLED
 
-    def __str__(self) -> str:
-        return (
+    @property
+    def template(self) -> str:
+        """The English ``str.format`` template of the message."""
+        return N_(
             "browser is not installed. Run 'playwright install chromium' "
             "(or 'crawl4ai-setup') and retry."
         )
+
+    @property
+    def params(self) -> dict[str, object]:
+        """The values for the fields of :attr:`template` (it has none)."""
+        return {}
 
 
 class NonHtmlContentError(FetchError):
@@ -145,5 +216,12 @@ class NonHtmlContentError(FetchError):
 
     kind = FailureKind.NON_HTML
 
-    def __str__(self) -> str:
-        return f"content is not a web page and could not be downloaded: {self.url}"
+    @property
+    def template(self) -> str:
+        """The English ``str.format`` template of the message."""
+        return N_("content is not a web page and could not be downloaded: {url}")
+
+    @property
+    def params(self) -> dict[str, object]:
+        """The values for the fields of :attr:`template`."""
+        return {"url": self.url}

@@ -4,6 +4,7 @@ from crawl4tools.engine.models import (
     FailureKind,
     FetchOptions,
     FetchOutcome,
+    Note,
     OutputFormat,
 )
 
@@ -81,7 +82,7 @@ def test_fetch_outcome_defaults() -> None:
 def test_fetch_outcome_notes_default_is_independent_list() -> None:
     first = FetchOutcome(url="https://example.com/", ok=True)
     second = FetchOutcome(url="https://example.com/", ok=True)
-    first.notes.append("note")
+    first.notes.append(Note("note"))
     assert second.notes == []
 
 

@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 from urllib.parse import unquote, urlsplit
 
 from crawl4tools.engine.models import OutputFormat
+from crawl4tools.i18n import N_, LocalizedError
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -45,6 +46,14 @@ _FORMAT_EXTENSIONS = {
 }
 
 
+class InvalidUrlError(LocalizedError, ValueError):
+    """A URL that is not an absolute http(s) URL.
+
+    Also a ``ValueError``, so existing ``except ValueError`` clauses keep
+    catching it; ``str()`` is the English message.
+    """
+
+
 def validate_url(url: str) -> str:
     """Validate that *url* is an absolute http(s) URL.
 
@@ -52,12 +61,13 @@ def validate_url(url: str) -> str:
         The stripped URL.
 
     Raises:
-        ValueError: if the URL has no http/https scheme, or no host.
+        InvalidUrlError: (a ``ValueError``) if the URL has no http/https
+            scheme, or no host.
     """
     stripped = url.strip()
     parts = urlsplit(stripped)
     if parts.scheme not in ("http", "https") or not parts.hostname:
-        raise ValueError(f"not an http(s) URL: {url}")
+        raise InvalidUrlError(N_("not an http(s) URL: {url}"), url=url)
     return stripped
 
 

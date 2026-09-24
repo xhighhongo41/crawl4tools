@@ -1,9 +1,14 @@
 """Click options and helpers shared by the crawl4mcp and crawl4server commands.
 
 Both commands expose the same server-wide fetch options (proxy, timeout,
-concurrency, ...), the same ``--config``/``--version`` behaviour and the
-same logging setup. Only the help texts that describe the scope of a
-setting differ, so those are parameters of :func:`fetch_option_decorators`.
+concurrency, ...), the same ``--config``/``--version``/``--lang`` behaviour
+and the same logging setup. Only the help texts that describe the scope of
+a setting differ, so those are parameters of :func:`fetch_option_decorators`.
+
+Every helper that shows text to the user takes the
+:data:`~crawl4tools.i18n.Translator` of the command's language as its first
+argument; the click callbacks capture it in a closure, since click passes
+them nothing but the context, the parameter and the value.
 """
 
 from __future__ import annotations
@@ -18,6 +23,12 @@ from typing import Any, TypeVar
 import click
 
 from crawl4tools.engine import normalize_proxy
+from crawl4tools.i18n import (
+    DEFAULT_LANGUAGE,
+    SUPPORTED_LANGUAGES,
+    Translator,
+    render_exception,
+)
 from crawl4tools.server.config import ConfigError, load_config
 from crawl4tools.server.settings import (
     DEFAULT_CONCURRENCY,
@@ -26,6 +37,11 @@ from crawl4tools.server.settings import (
 )
 
 F = TypeVar("F", bound=Callable[..., Any])
+
+#: A click callback checking the value of an optional string option.
+OptionalStrCallback = Callable[[click.Context, click.Parameter, str | None], str | None]
+#: A click callback checking the value of a string option.
+StrCallback = Callable[[click.Context, click.Parameter, str], str]
 
 # Loggers that crawl4ai's HTTP dependencies use directly; silenced unless
 # --verbose is given so ordinary runs stay quiet on stderr.
@@ -59,24 +75,40 @@ def setup_logging(verbose: bool) -> None:
             logging.getLogger(name).setLevel(logging.WARNING)
 
 
-def validate_proxy(_ctx: click.Context, _param: click.Parameter, value: str | None) -> str | None:
-    """Click callback normalizing a ``--proxy`` value (``None`` passes through)."""
-    if value is None:
-        return None
-    try:
-        return normalize_proxy(value)
-    except ValueError as exc:
-        raise click.BadParameter(str(exc)) from exc
+def proxy_validator(t: Translator) -> OptionalStrCallback:
+    """Return the click callback normalizing a ``--proxy`` value.
+
+    ``None`` passes through. An invalid proxy URL is reported as a bad
+    parameter with the message translated by *t*.
+    """
+
+    def validate(_ctx: click.Context, _param: click.Parameter, value: str | None) -> str | None:
+        if value is None:
+            return None
+        try:
+            return normalize_proxy(value)
+        except ValueError as exc:
+            raise click.BadParameter(render_exception(exc, t)) from exc
+
+    return validate
 
 
-def validate_path(_ctx: click.Context, _param: click.Parameter, value: str) -> str:
-    """Click callback requiring an HTTP path option to start with ``/``."""
-    if not value.startswith("/"):
-        raise click.BadParameter("must start with '/'")
-    return value
+def path_validator(t: Translator) -> StrCallback:
+    """Return the click callback requiring an HTTP path option to start with ``/``.
+
+    The error message is translated by *t*.
+    """
+
+    def validate(_ctx: click.Context, _param: click.Parameter, value: str) -> str:
+        if not value.startswith("/"):
+            raise click.BadParameter(t.gettext("must start with '/'"))
+        return value
+
+    return validate
 
 
 def fetch_option_decorators(
+    t: Translator,
     *,
     timeout_help: str,
     concurrency_help: str,
@@ -89,21 +121,22 @@ def fetch_option_decorators(
     ``--fallback/--no-fallback``, ``--timeout``, ``-j/--concurrency``,
     ``--max-urls``, ``--download-dir`` and ``-v/--verbose``. The help texts
     of the four options whose scope differs between commands are given by
-    the caller.
+    the caller, already translated; the others and the ``--proxy`` error
+    are translated by *t*.
     """
     options: list[Callable[[F], F]] = [
         click.option(
             "--proxy",
             "proxy",
             default=None,
-            callback=validate_proxy,
-            help="Proxy URL (http, https, or socks5); e.g. socks5://host:1080.",
+            callback=proxy_validator(t),
+            help=t.gettext("Proxy URL (http, https, or socks5); e.g. socks5://host:1080."),
         ),
         click.option(
             "--fallback/--no-fallback",
             "fallback",
             default=True,
-            help="Retry without the proxy when the proxy itself appears to be at fault.",
+            help=t.gettext("Retry without the proxy when the proxy itself appears to be at fault."),
         ),
         click.option(
             "--timeout",
@@ -144,7 +177,7 @@ def fetch_option_decorators(
             "verbose",
             is_flag=True,
             default=False,
-            help="Enable verbose logging.",
+            help=t.gettext("Enable verbose logging."),
         ),
     ]
 
@@ -158,12 +191,15 @@ def fetch_option_decorators(
     return decorate
 
 
-def config_option(envvar: str, allowed_keys: frozenset[str], help: str) -> Callable[[F], F]:
+def config_option(
+    t: Translator, envvar: str, allowed_keys: frozenset[str], help: str
+) -> Callable[[F], F]:
     """Return the eager ``--config`` option loading a YAML/JSON config file.
 
     The file's values become the command's ``default_map``, so command-line
     options and environment variables still take precedence. Keys outside
-    *allowed_keys* are rejected as a bad parameter.
+    *allowed_keys* are rejected as a bad parameter, with the message
+    translated by *t*. *help* is given already translated.
     """
 
     def load(ctx: click.Context, _param: click.Parameter, value: Path | None) -> None:
@@ -172,7 +208,7 @@ def config_option(envvar: str, allowed_keys: frozenset[str], help: str) -> Calla
         try:
             ctx.default_map = load_config(value, allowed_keys)
         except ConfigError as exc:
-            raise click.BadParameter(str(exc)) from exc
+            raise click.BadParameter(render_exception(exc, t)) from exc
 
     return click.option(
         "--config",
@@ -186,8 +222,11 @@ def config_option(envvar: str, allowed_keys: frozenset[str], help: str) -> Calla
     )
 
 
-def version_option(text: Callable[[], str]) -> Callable[[F], F]:
-    """Return the eager ``--version`` flag printing ``text()`` and exiting 0."""
+def version_option(t: Translator, text: Callable[[], str]) -> Callable[[F], F]:
+    """Return the eager ``--version`` flag printing ``text()`` and exiting 0.
+
+    Only the flag's help is translated by *t*; ``text()`` is printed as is.
+    """
 
     def show(ctx: click.Context, _param: click.Parameter, value: bool) -> None:
         if not value or ctx.resilient_parsing:
@@ -201,5 +240,23 @@ def version_option(text: Callable[[], str]) -> Callable[[F], F]:
         expose_value=False,
         is_eager=True,
         callback=show,
-        help="Show the version and exit.",
+        help=t.gettext("Show the version and exit."),
+    )
+
+
+def lang_option(t: Translator, envvar: str) -> Callable[[F], F]:
+    """Return the ``--lang`` option choosing the language of the messages.
+
+    Accepts :data:`~crawl4tools.i18n.SUPPORTED_LANGUAGES` (click rejects
+    anything else, also from *envvar*) and defaults to
+    :data:`~crawl4tools.i18n.DEFAULT_LANGUAGE`. The help is translated by *t*.
+    """
+    return click.option(
+        "--lang",
+        "lang",
+        type=click.Choice(list(SUPPORTED_LANGUAGES)),
+        default=DEFAULT_LANGUAGE,
+        show_default=True,
+        envvar=envvar,
+        help=t.gettext("Language of messages: en or ja."),
     )

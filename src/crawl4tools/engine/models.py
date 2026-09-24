@@ -1,15 +1,20 @@
 """Data models shared across the fetch engine.
 
 These are plain data containers (enums and dataclasses) with no I/O of
-their own. Keeping them free of behavior makes them safe to import from
-every other engine module without risking circular imports.
+their own. Apart from rendering a :class:`Note`, they have no behavior and
+import nothing from the engine (only :mod:`crawl4tools.i18n`, which never
+imports the engine), so every other engine module can import them without
+risking circular imports.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING
+
+from crawl4tools.i18n import ENGLISH, Translator, format_message
 
 if TYPE_CHECKING:
     # Only needed for the type checker: importing errors at runtime would
@@ -69,6 +74,27 @@ class FetchOptions:
     verbose: bool = False
 
 
+@dataclass(frozen=True)
+class Note:
+    """A note about a fetch that succeeded with a caveat.
+
+    ``template`` is an English ``str.format`` template marked with
+    :func:`~crawl4tools.i18n.N_`; ``params`` fill its ``{name}`` fields. A
+    parameter may itself be localized (a fetch error), and is then rendered
+    in the same language as the note. ``str(note)`` is the English message.
+    """
+
+    template: str
+    params: Mapping[str, object] = field(default_factory=dict)
+
+    def render(self, t: Translator) -> str:
+        """Return the note with the template translated by ``t``."""
+        return format_message(t, self.template, self.params)
+
+    def __str__(self) -> str:
+        return self.render(ENGLISH)
+
+
 @dataclass
 class FetchOutcome:
     """The result of attempting to fetch a single URL."""
@@ -83,6 +109,6 @@ class FetchOutcome:
     data: bytes | None = None
     suggested_extension: str = ".md"
     error: FetchError | None = None
-    notes: list[str] = field(default_factory=list)
+    notes: list[Note] = field(default_factory=list)
     # The page's <title>, when the fetch produced one (HTML pages only).
     title: str | None = None

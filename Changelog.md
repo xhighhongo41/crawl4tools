@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-25
+
+### Added
+
+- English and Japanese messages for `crawl4cli`, `crawl4mcp`, and `crawl4server`: `--help` text, error messages, notes and progress lines on stderr, the MCP tools' descriptions and result text, the servers' startup/warning lines, and the web loader's JSON error responses
+- `--lang en|ja` option, `CRAWL4CLI_LANG`/`CRAWL4MCP_LANG`/`CRAWL4SERVER_LANG` environment variables, and a `lang` config file key (servers) to choose the message language, resolved as option > environment variable > config file
+
+### Changed
+
+- `crawl4cli` now follows the OS locale (`LANGUAGE`, `LC_ALL`, `LC_MESSAGES`, `LANG`) to pick its default language; `crawl4mcp` and `crawl4server` still default to English regardless of the locale
+
 ## [0.3.0] - 2026-09-24
 
 ### Added
@@ -55,7 +66,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No code is included in this release.
 
-[Unreleased]: https://github.com/xhighhongo41/crawl4tools/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/xhighhongo41/crawl4tools/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/xhighhongo41/crawl4tools/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/xhighhongo41/crawl4tools/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/xhighhongo41/crawl4tools/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/xhighhongo41/crawl4tools/compare/v0.0.1...v0.1.0

@@ -1,11 +1,15 @@
 """End-to-end checks of crawl4cli against real sites with a real browser."""
 
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
 
 from crawl4tools.cli.main import main
+from crawl4tools.i18n import get_translator
 
 pytestmark = pytest.mark.integration
 
@@ -69,3 +73,34 @@ def test_fit_drops_navigation_but_keeps_the_article() -> None:
     assert "Main menu" not in fit
     assert "Software that systematically browses the World Wide Web" in fit
     assert len(fit) < len(full)
+
+
+# The installed console script (crawl4cli = crawl4tools.cli.main:entry).
+CRAWL4CLI = str(Path(sys.executable).parent / "crawl4cli")
+
+
+def test_console_script_reports_errors_in_japanese() -> None:
+    url = "https://no-such-host.invalid/"
+    result = subprocess.run(
+        [CRAWL4CLI, "--lang", "ja", "--timeout", "30", url],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    japanese = get_translator("ja").gettext("could not resolve host: {url}").format(url=url)
+    assert japanese != f"could not resolve host: {url}"
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr == f"error: {japanese}\n"
+
+
+def test_console_script_help_follows_the_locale() -> None:
+    env = {k: v for k, v in os.environ.items() if k not in ("LANGUAGE", "LC_ALL", "LC_MESSAGES")}
+    env["LANG"] = "ja_JP.UTF-8"
+    result = subprocess.run(
+        [CRAWL4CLI, "--help"], capture_output=True, text=True, timeout=60, env=env
+    )
+    japanese = get_translator("ja").gettext("Download web pages as Markdown and other formats.")
+    assert result.returncode == 0
+    assert japanese in result.stdout
+    assert "Download web pages as Markdown" not in result.stdout

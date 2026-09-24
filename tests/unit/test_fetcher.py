@@ -23,6 +23,7 @@ from crawl4tools.engine.models import (
     FailureKind,
     FetchOptions,
     FetchOutcome,
+    Note,
     OutputFormat,
 )
 
@@ -71,8 +72,12 @@ def proxy_aware(with_proxy: Any, without_proxy: Any) -> Callable[[str, Any], Any
     return handler
 
 
+def note_texts(outcome: FetchOutcome) -> list[str]:
+    return [str(note) for note in outcome.notes]
+
+
 def assert_no_secret(outcome: FetchOutcome) -> None:
-    texts = [*outcome.notes, str(outcome.error) if outcome.error else ""]
+    texts = [*note_texts(outcome), str(outcome.error) if outcome.error else ""]
     for text in texts:
         assert SECRET not in text
         assert "user:" not in text
@@ -239,11 +244,24 @@ async def test_proxy_failure_falls_back_to_direct() -> None:
     assert crawler.calls[1][1].proxy_config is None
     assert http.proxies == [PROXY, None]
     assert len(outcome.notes) == 1
-    note = outcome.notes[0]
+    note = note_texts(outcome)[0]
     assert note.startswith("proxy failed (")
     assert note.endswith("); retried with a direct connection")
     assert "http://***@proxy.example:8080" in note
     assert_no_secret(outcome)
+
+
+async def test_proxy_fallback_note_quotes_the_error_object() -> None:
+    crawler = FakeCrawler(
+        proxy_aware(fail("net::ERR_PROXY_CONNECTION_FAILED at " + URL), make_result())
+    )
+    outcome, _, _ = await fetch_one(FetchOptions(proxy=PROXY), crawler=crawler)
+    assert outcome.ok
+    [note] = outcome.notes
+    assert note.template == "proxy failed ({error}); retried with a direct connection"
+    error = note.params["error"]
+    assert isinstance(error, ProxyFetchError)
+    assert error.proxy == "http://***@proxy.example:8080"
 
 
 async def test_fallback_disabled_reports_proxy_failure() -> None:
@@ -264,7 +282,7 @@ async def test_fallback_retries_only_once() -> None:
     assert not outcome.ok
     assert len(crawler.calls) == 2
     assert len(outcome.notes) == 1
-    assert outcome.notes[0].startswith("proxy failed (")
+    assert note_texts(outcome)[0].startswith("proxy failed (")
     assert_no_secret(outcome)
 
 
@@ -274,7 +292,7 @@ async def test_http_502_through_proxy_falls_back() -> None:
     assert outcome.ok
     assert outcome.status_code == 200
     assert len(crawler.calls) == 2
-    assert "HTTP 502" in outcome.notes[0]
+    assert "HTTP 502" in note_texts(outcome)[0]
     assert_no_secret(outcome)
 
 
@@ -282,7 +300,7 @@ async def test_timeout_through_proxy_falls_back() -> None:
     crawler = FakeCrawler(proxy_aware(fail("Timeout 60000ms exceeded."), make_result()))
     outcome, _, _ = await fetch_one(FetchOptions(proxy=PROXY), crawler=crawler)
     assert outcome.ok
-    assert "timed out" in outcome.notes[0]
+    assert "timed out" in note_texts(outcome)[0]
     assert_no_secret(outcome)
 
 
@@ -405,7 +423,7 @@ async def test_empty_pdf_text_is_saved_with_note(
     assert outcome.ok
     assert outcome.text == ""
     assert outcome.suggested_extension == ".md"
-    assert outcome.notes == ["no extractable text in PDF; saved an empty document"]
+    assert note_texts(outcome) == ["no extractable text in PDF; saved an empty document"]
 
 
 async def test_corrupt_pdf_falls_back_to_raw() -> None:
@@ -416,8 +434,8 @@ async def test_corrupt_pdf_falls_back_to_raw() -> None:
     assert outcome.text is None
     assert outcome.suggested_extension == ".pdf"
     assert len(outcome.notes) == 1
-    assert outcome.notes[0].startswith("could not convert PDF to Markdown (")
-    assert outcome.notes[0].endswith("); saved the original file")
+    assert note_texts(outcome)[0].startswith("could not convert PDF to Markdown (")
+    assert note_texts(outcome)[0].endswith("); saved the original file")
     assert not crawler.started
 
 
@@ -438,7 +456,7 @@ async def test_pdf_other_formats_saved_as_is(
     assert outcome.data == sample_pdf
     assert outcome.content_kind is ContentKind.PDF
     assert outcome.suggested_extension == ".pdf"
-    assert outcome.notes == notes
+    assert note_texts(outcome) == notes
     assert not crawler.started
 
 
@@ -455,7 +473,13 @@ async def test_image_is_saved_as_binary() -> None:
     assert outcome.data == b"\xff\xd8JPEG"
     assert outcome.suggested_extension == ".jpg"
     assert outcome.content_type == "image/jpeg"
-    assert outcome.notes == ["not a web page (image/jpeg); saved the original file"]
+    assert note_texts(outcome) == ["not a web page (image/jpeg); saved the original file"]
+    assert outcome.notes == [
+        Note(
+            "not a web page ({media_type}); saved the original file",
+            {"media_type": "image/jpeg"},
+        )
+    ]
     assert not crawler.started
 
 
@@ -506,6 +530,16 @@ async def test_err_aborted_is_downloaded_via_http() -> None:
     assert outcome.suggested_extension == ".zip"
     assert len(http.requests) == 2
     assert len(crawler.calls) == 1
+
+
+async def test_download_without_content_type_is_noted_as_unknown_type() -> None:
+    url = "https://example.com/file.zip"
+    http = FakeHttp(lambda request: response(None, b"PK\x03\x04"))
+    crawler = FakeCrawler(fail("net::ERR_ABORTED at " + url))
+    outcome, _, _ = await fetch_one(crawler=crawler, http=http, url=url)
+    assert outcome.ok, outcome.error
+    assert outcome.notes == [Note("not a web page (unknown type); saved the original file")]
+    assert note_texts(outcome) == ["not a web page (unknown type); saved the original file"]
 
 
 async def test_err_aborted_download_failure() -> None:
@@ -666,7 +700,7 @@ async def test_fit_falls_back_to_full_page_when_filter_keeps_nothing() -> None:
     outcome, _, _ = await fetch_one(FetchOptions(fit=True), crawler=crawler)
     assert outcome.ok
     assert outcome.text == "# Hello"
-    assert any("content filter kept nothing" in note for note in outcome.notes)
+    assert any("content filter kept nothing" in note for note in note_texts(outcome))
 
 
 async def test_fit_falls_back_to_full_page_when_filter_fails() -> None:
@@ -674,7 +708,7 @@ async def test_fit_falls_back_to_full_page_when_filter_fails() -> None:
     outcome, _, _ = await fetch_one(FetchOptions(fit=True), crawler=crawler)
     assert outcome.ok
     assert outcome.text == "# Hello"
-    assert any("content filter failed" in note and "boom" in note for note in outcome.notes)
+    assert any("content filter failed" in note and "boom" in note for note in note_texts(outcome))
 
 
 async def test_fit_with_citations_converts_links_of_filtered_markdown() -> None:
@@ -821,7 +855,7 @@ async def test_per_call_proxy_is_normalized_and_falls_back() -> None:
     assert direct.ok
     assert direct.notes == []
     assert proxied.ok
-    assert proxied.notes[0].startswith("proxy failed (")
+    assert note_texts(proxied)[0].startswith("proxy failed (")
     assert http.proxies == [None, "http://proxy.example:8080", None]
     assert crawler.calls[1][1].proxy_config.server == "http://proxy.example:8080"
     assert crawler.calls[2][1].proxy_config is None

@@ -12,7 +12,7 @@ crawl4tools is a web crawler built on top of the [crawl4ai](https://github.com/u
 
 ## Status
 
-**Alpha.** This release (0.3.0) provides the local CLI `crawl4cli`, the MCP server `crawl4mcp`, and the combined Open WebUI web loader + MCP server `crawl4server`, with a Dockerfile and compose file.
+**Alpha.** This release (0.4.0) provides the local CLI `crawl4cli`, the MCP server `crawl4mcp`, and the combined Open WebUI web loader + MCP server `crawl4server`, with a Dockerfile and compose file. All three commands can show their messages in English or Japanese.
 
 ## Features
 
@@ -22,6 +22,7 @@ Available now (CLI):
 - PDFs are transcribed to Markdown; images and other non-HTML files are saved as they are
 - Clear error messages for HTTP errors, unknown hosts, refused connections, timeouts, and a missing browser
 - Downloading through an HTTP/HTTPS/SOCKS5 proxy, with a single retry over a direct connection when the proxy itself fails
+- Messages in English or Japanese (see [Language of messages](#language-of-messages))
 
 Available now (MCP server):
 
@@ -30,6 +31,7 @@ Available now (MCP server):
 - stdio (default) and Streamable HTTP transports
 - Proxy support with a direct-connection fallback, configured on the server side
 - Settings via command-line options, `CRAWL4MCP_*` environment variables, or a YAML/JSON config file
+- Messages in English or Japanese (see [Language of messages](#language-of-messages))
 
 Available now (Open WebUI web loader, `crawl4server`):
 
@@ -38,6 +40,7 @@ Available now (Open WebUI web loader, `crawl4server`):
 - `GET /health` for liveness checks, and an optional bearer API key on the web loader endpoint
 - Settings via command-line options, `CRAWL4SERVER_*` environment variables, or a YAML/JSON config file
 - Dockerfile and compose file for running the server in a container
+- Messages in English or Japanese (see [Language of messages](#language-of-messages))
 
 Planned:
 
@@ -83,6 +86,7 @@ crawl4cli --proxy http://proxy.local:8080 URL     # through a proxy
 | `--citations` | Turn links into numbered references listed at the end |
 | `--no-links`, `--no-images` | Drop links or image references from the Markdown |
 | `-q, --quiet` / `-v, --verbose` | Less or more output on stderr |
+| `--lang en\|ja` | Language of messages (default: follows the OS locale; see [Language of messages](#language-of-messages)) |
 
 Only the document goes to stdout; notes, errors, and the summary go to stderr. File names are derived from the URL (`https://example.com/a/b` → `example.com_a_b.md`). The exit code is 0 when every URL succeeded, 1 when any failed, and 2 for invalid arguments. Every option can also be set with an environment variable named `CRAWL4CLI_<OPTION>`, for example `CRAWL4CLI_PROXY`. The standard `HTTP_PROXY`/`HTTPS_PROXY` variables are not used.
 
@@ -129,6 +133,7 @@ Open WebUI posts `{"urls": [...]}` to that URL and gets back a JSON array of `{"
 | `--download-dir DIR` | Root directory the MCP `download` tool saves files into (default: current directory) |
 | `--config FILE` | YAML or JSON config file (see Configuration below) |
 | `-v, --verbose` | Verbose logging on stderr |
+| `--lang en\|ja` | Language of messages the server produces while running (default: English; see [Language of messages](#language-of-messages)) |
 
 ### Configuration
 
@@ -141,6 +146,7 @@ loader_api_key: change-me
 mcp_port: 8765
 max_urls: 20
 concurrency: 3
+lang: ja
 ```
 
 ### Docker
@@ -228,6 +234,7 @@ When a call covers several URLs, each result starts with a `<!-- crawl4tools: ur
 | `--download-dir DIR` | Root directory the `download` tool saves files into (default: current directory) |
 | `--config FILE` | YAML or JSON config file (see Configuration below) |
 | `-v, --verbose` | Verbose logging on stderr |
+| `--lang en\|ja` | Language of messages the server produces while running (default: English; see [Language of messages](#language-of-messages)) |
 
 ### Configuration
 
@@ -245,6 +252,7 @@ max_urls: 50
 concurrency: 5
 download_dir: ./downloads
 proxy: http://proxy.local:8080
+lang: ja
 ```
 
 Relative paths in the config file (such as `download_dir`) are resolved from the current directory the server is started in.
@@ -252,6 +260,25 @@ Relative paths in the config file (such as `download_dir`) are resolved from the
 ### Security
 
 The Streamable HTTP transport has no authentication. By default the server listens on `127.0.0.1` only; if you bind it to another host, anyone who can reach that port can use the server, and `crawl4mcp` prints a warning to stderr when it starts. In stdio mode, stdout is reserved for the MCP protocol — all logging goes to stderr.
+
+## Language of messages
+
+All three commands can show their messages in English (`en`) or Japanese (`ja`).
+
+Choose the language with the `--lang` option, an environment variable (`CRAWL4CLI_LANG`, `CRAWL4MCP_LANG`, `CRAWL4SERVER_LANG`), or, for the two servers, the `lang` key in the config file. When more than one is set, the option wins, then the environment variable, then the config file.
+
+Defaults: `crawl4cli` follows the OS locale (`LANGUAGE`, `LC_ALL`, `LC_MESSAGES`, then `LANG`, whichever is set first) and uses Japanese when it starts with `ja` (for example `LANG=ja_JP.UTF-8`), otherwise English. `crawl4mcp` and `crawl4server` always default to English, regardless of the locale, so containers and MCP clients get stable output.
+
+```sh
+crawl4cli --lang ja https://example.com/
+CRAWL4SERVER_LANG=ja crawl4server
+```
+
+This covers `--help`, error messages, notes and progress lines on stderr, the MCP tools' descriptions and result text, the servers' startup/warning lines, and the web loader's JSON error responses. `--help` always follows `--lang`/the environment variable (and, for `crawl4cli`, the locale) — the config file's `lang` only applies to messages produced while the server is running.
+
+Always in English, unchanged by `--lang`: log output; the `error:`, `note:`, `saved:`, `done:`, `failed:` line prefixes; JSON keys; the `<!-- crawl4tools: url=... status=... -->` header lines; `GET /health`; `--version`; and anything printed by click or other libraries (for example `Usage:` or `Error: Invalid value ...`).
+
+Each process uses one language for its whole run; there is no per-request language.
 
 ## Acknowledgements
 

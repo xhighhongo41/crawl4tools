@@ -1,0 +1,524 @@
+# Japanese translations for crawl4tools.
+# Copyright (C) 2026 xhighhongo41
+# This file is distributed under the same license as the crawl4tools
+# project.
+# The crawl4tools contributors, 2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: crawl4tools 0.4.0\n"
+"Report-Msgid-Bugs-To: https://github.com/xhighhongo41/crawl4tools/issues\n"
+"POT-Creation-Date: 2026-09-24 23:53+0900\n"
+"PO-Revision-Date: 2026-09-24 23:53+0900\n"
+"Last-Translator: crawl4tools contributors\n"
+"Language: ja\n"
+"Language-Team: ja\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+msgid ""
+"--output can only be used with a single URL; use --output-dir for several"
+" URLs"
+msgstr "--output は URL が 1 つのときだけ使えます。複数の URL には --output-dir を使ってください"
+
+#, python-brace-format
+msgid "duplicate URL ignored: {url}"
+msgstr "重複した URL を無視しました: {url}"
+
+#, python-brace-format
+msgid "could not write {path}: {reason}"
+msgstr "{path} に書き込めません: {reason}"
+
+msgid "Download web pages as Markdown and other formats."
+msgstr "Web ページを Markdown などの形式でダウンロードします。"
+
+msgid "Output format."
+msgstr "出力形式を指定します。"
+
+msgid "Write the (single) fetched URL to this file instead of stdout."
+msgstr "取得した(1 つの)URL を標準出力ではなくこのファイルに書き込みます。"
+
+msgid "Directory to save fetched URLs into."
+msgstr "取得した URL を保存するディレクトリです。"
+
+msgid "Proxy URL (http, https, or socks5); e.g. socks5://host:1080."
+msgstr "プロキシ URL(http、https、socks5 のいずれか)です。例: socks5://host:1080。"
+
+msgid "Retry without the proxy when the proxy itself appears to be at fault."
+msgstr "プロキシ自体に問題があると見られる場合は、プロキシなしで再試行します。"
+
+msgid "Maximum number of URLs fetched at once."
+msgstr "同時に取得する URL の最大数です。"
+
+msgid "Per-URL timeout in seconds."
+msgstr "URL ごとのタイムアウト(秒)です。"
+
+msgid "Add Markdown citations."
+msgstr "Markdown のリンクを番号付きの参照にします。"
+
+msgid ""
+"Keep only the main content (drop menus, footers, and the like) in the "
+"Markdown."
+msgstr "Markdown に本文だけを残します(メニューやフッターなどを除きます)。"
+
+msgid "Strip links from the Markdown."
+msgstr "Markdown からリンクを除きます。"
+
+msgid "Strip images from the Markdown."
+msgstr "Markdown から画像を除きます。"
+
+msgid "Suppress progress and note lines."
+msgstr "進捗と note 行を表示しません。"
+
+msgid "Enable verbose engine logging."
+msgstr "エンジンの詳細なログを出力します。"
+
+msgid ""
+"Language of messages: en or ja. Defaults to the locale (LANGUAGE, LC_ALL,"
+" LC_MESSAGES, LANG), else en."
+msgstr ""
+"メッセージの言語(en または ja)です。省略時はロケール(LANGUAGE, LC_ALL, LC_MESSAGES, "
+"LANG)に従い、決まらなければ en です。"
+
+msgid "Show the version and exit."
+msgstr "バージョンを表示して終了します。"
+
+#, python-brace-format
+msgid "fetch failed: {url}"
+msgstr "取得に失敗しました: {url}"
+
+#, python-brace-format
+msgid "{succeeded} succeeded, {failed} failed"
+msgstr "成功 {succeeded} 件、失敗 {failed} 件"
+
+#, python-brace-format
+msgid "fetch failed: {summary}: {url}"
+msgstr "取得に失敗しました: {summary}: {url}"
+
+#, python-brace-format
+msgid "HTTP {status_code} {reason}: {url}"
+msgstr "HTTP {status_code} {reason}: {url}"
+
+#, python-brace-format
+msgid "HTTP {status_code}: {url}"
+msgstr "HTTP {status_code}: {url}"
+
+#, python-brace-format
+msgid "could not resolve host: {url}"
+msgstr "ホスト名を解決できません: {url}"
+
+#, python-brace-format
+msgid "connection refused: {url}"
+msgstr "接続を拒否されました: {url}"
+
+#, python-brace-format
+msgid "timed out after {timeout_s:g}s: {url}"
+msgstr "{timeout_s:g} 秒でタイムアウトしました: {url}"
+
+#, python-brace-format
+msgid "proxy connection failed ({proxy}): {url}"
+msgstr "プロキシに接続できません({proxy}): {url}"
+
+msgid ""
+"browser is not installed. Run 'playwright install chromium' (or "
+"'crawl4ai-setup') and retry."
+msgstr ""
+"ブラウザがインストールされていません。'playwright install chromium'(または 'crawl4ai-"
+"setup')を実行してから再試行してください。"
+
+#, python-brace-format
+msgid "content is not a web page and could not be downloaded: {url}"
+msgstr "Web ページではなく、ダウンロードもできませんでした: {url}"
+
+#, python-brace-format
+msgid "proxy failed ({error}); retried with a direct connection"
+msgstr "プロキシ経由で失敗しました({error})。直接接続で再試行しました"
+
+#, python-brace-format
+msgid "content filter failed ({reason}); saved the full page"
+msgstr "コンテンツフィルタが失敗しました({reason})。ページ全体を保存しました"
+
+msgid "content filter kept nothing; saved the full page"
+msgstr "コンテンツフィルタで何も残りませんでした。ページ全体を保存しました"
+
+#, python-brace-format
+msgid "could not convert PDF to Markdown ({error}); saved the original file"
+msgstr "PDF を Markdown に変換できませんでした({error})。元のファイルを保存しました"
+
+msgid "no extractable text in PDF; saved an empty document"
+msgstr "PDF から抽出できるテキストがありません。空の文書を保存しました"
+
+#, python-brace-format
+msgid "PDF saved as-is (format '{format}' does not apply)"
+msgstr "PDF をそのまま保存しました(形式 '{format}' は適用できません)"
+
+#, python-brace-format
+msgid "not a web page ({media_type}); saved the original file"
+msgstr "Web ページではありません({media_type})。元のファイルを保存しました"
+
+msgid "not a web page (unknown type); saved the original file"
+msgstr "Web ページではありません(形式不明)。元のファイルを保存しました"
+
+#, python-brace-format
+msgid "not an http(s) URL: {url}"
+msgstr "http(s) の URL ではありません: {url}"
+
+#, python-brace-format
+msgid "unsupported proxy scheme: {proxy}"
+msgstr "対応していないプロキシのスキームです: {proxy}"
+
+#, python-brace-format
+msgid "proxy URL is missing a host: {proxy}"
+msgstr "プロキシ URL にホストがありません: {proxy}"
+
+#, python-brace-format
+msgid "proxy URL has an invalid port: {proxy}"
+msgstr "プロキシ URL のポートが不正です: {proxy}"
+
+#, python-brace-format
+msgid "proxy URL is missing a port: {proxy}"
+msgstr "プロキシ URL にポートがありません: {proxy}"
+
+msgid "must start with '/'"
+msgstr "'/' で始めてください"
+
+msgid "Enable verbose logging."
+msgstr "詳細なログを出力します。"
+
+msgid "Language of messages: en or ja."
+msgstr "メッセージの言語(en または ja)です。"
+
+#, python-brace-format
+msgid "{path}: cannot read config file: {reason}"
+msgstr "{path}: 設定ファイルを読み込めません: {reason}"
+
+#, python-brace-format
+msgid "{path}: invalid YAML/JSON: {reason}"
+msgstr "{path}: YAML/JSON として不正です: {reason}"
+
+#, python-brace-format
+msgid "{path}: top level must be a mapping of option names to values"
+msgstr "{path}: 最上位はオプション名と値の対応(マッピング)にしてください"
+
+#, python-brace-format
+msgid "{path}: unknown config key(s): {keys} (allowed keys: {allowed})"
+msgstr "{path}: 不明な設定キーです: {keys}(使えるキー: {allowed})"
+
+#, python-brace-format
+msgid "cannot listen on {address}: {reason}"
+msgstr "{address} で待ち受けできません: {reason}"
+
+msgid "not found"
+msgstr "見つかりません"
+
+#, python-brace-format
+msgid "too many URLs: {count} given, at most {limit} per request"
+msgstr "URL が多すぎます: {count} 件(1 リクエストあたり最大 {limit} 件)"
+
+msgid "request body is not valid JSON"
+msgstr "リクエストボディが正しい JSON ではありません"
+
+msgid "request body must be a JSON object like {{\"urls\": [...]}}"
+msgstr "リクエストボディは {{\"urls\": [...]}} のような JSON オブジェクトにしてください"
+
+msgid "missing \"urls\""
+msgstr "\"urls\" がありません"
+
+msgid "\"urls\" must be a list of strings"
+msgstr "\"urls\" は文字列のリストにしてください"
+
+#, python-brace-format
+msgid "POST {path} with {{\"urls\": [...]}}"
+msgstr "{path} に {{\"urls\": [...]}} を POST してください"
+
+msgid "unauthorized"
+msgstr "認証されていません"
+
+msgid "method not allowed"
+msgstr "許可されていないメソッドです"
+
+msgid "Run the crawl4tools MCP server."
+msgstr "crawl4tools の MCP サーバーを起動します。"
+
+msgid "Transport to serve the MCP protocol over."
+msgstr "MCP プロトコルを提供するトランスポートです。"
+
+msgid "Host to listen on (http transport only)."
+msgstr "待ち受けるホストです(http トランスポートのみ)。"
+
+msgid "Port to listen on (http transport only)."
+msgstr "待ち受けるポートです(http トランスポートのみ)。"
+
+msgid "HTTP path to serve the MCP endpoint at (http transport only)."
+msgstr "MCP エンドポイントを提供する HTTP パスです(http トランスポートのみ)。"
+
+msgid "Default per-URL timeout in seconds, used when a tool call omits timeout_s."
+msgstr "URL ごとのタイムアウト(秒)の既定値です。ツール呼び出しで timeout_s を省略したときに使います。"
+
+msgid "Maximum number of URLs fetched at once across every tool call."
+msgstr "すべてのツール呼び出しを通じて同時に取得する URL の最大数です。"
+
+msgid "Maximum number of URLs accepted in a single tool call."
+msgstr "1 回のツール呼び出しで受け付ける URL の最大数です。"
+
+msgid "Root directory the download tool saves files into."
+msgstr "download ツールがファイルを保存するルートディレクトリです。"
+
+msgid ""
+"YAML or JSON config file; command-line options and CRAWL4MCP_* "
+"environment variables take precedence."
+msgstr "YAML または JSON の設定ファイルです。コマンドラインのオプションと CRAWL4MCP_* 環境変数が優先されます。"
+
+#, python-brace-format
+msgid ""
+"listening on {host}:{port} without authentication; anyone who can reach "
+"it can use this server"
+msgstr "{host}:{port} で認証なしで待ち受けています。接続できる人は誰でもこのサーバーを使えます"
+
+#, python-brace-format
+msgid "serving MCP on {url}"
+msgstr "{url} で MCP を提供しています"
+
+msgid ""
+"URLs to fetch (http or https), at most the server's per-call limit (see "
+"the server instructions); duplicates are fetched once."
+msgstr ""
+"取得する URL(http または https)です。1 回の呼び出しにつきサーバーの上限まで指定できます(サーバーの instructions "
+"を参照)。重複した URL は 1 回だけ取得します。"
+
+msgid ""
+"Keep only the main content (drops menus, footers, and the like); falls "
+"back to the full page when nothing is left. Markdown only."
+msgstr "本文だけを残します(メニューやフッターなどを除きます)。何も残らなければページ全体を使います。Markdown のときだけ有効です。"
+
+msgid "Turn links into numbered references listed at the end. Markdown only."
+msgstr "リンクを番号付きの参照に置き換え、末尾に一覧にします。Markdown のときだけ有効です。"
+
+msgid "Drop links from the Markdown output. Markdown only."
+msgstr "Markdown の出力からリンクを除きます。Markdown のときだけ有効です。"
+
+msgid "Drop images from the Markdown output. Markdown only."
+msgstr "Markdown の出力から画像を除きます。Markdown のときだけ有効です。"
+
+msgid "Page load timeout per URL in seconds; defaults to the server setting."
+msgstr "URL ごとのページ読み込みのタイムアウト(秒)です。省略時はサーバーの設定値を使います。"
+
+msgid ""
+"Output format: 'markdown' (default), 'html' (rendered page HTML), or "
+"'screenshot' (full-page PNG image)."
+msgstr ""
+"出力形式です。'markdown'(既定)、'html'(描画後のページの HTML)、'screenshot'(ページ全体の PNG "
+"画像)のいずれかです。"
+
+msgid ""
+"File format: 'markdown' (default), 'html', 'pdf' (page printed to PDF), "
+"'screenshot' (PNG), 'mhtml' (single-file web archive), or 'raw' (the "
+"original response bytes, e.g. a PDF or image as served)."
+msgstr ""
+"ファイル形式です。'markdown'(既定)、'html'、'pdf'(ページを PDF "
+"に印刷したもの)、'screenshot'(PNG)、'mhtml'(1 ファイルにまとめた Web "
+"アーカイブ)、'raw'(応答の元のバイト列。例: 配信されたままの PDF や画像)のいずれかです。"
+
+msgid ""
+"Subdirectory of the server's download directory to save into; must stay "
+"inside it. Defaults to the download directory itself."
+msgstr "保存先とする、サーバーのダウンロード先ディレクトリの下のサブディレクトリです。その外は指定できません。省略時はダウンロード先ディレクトリそのものに保存します。"
+
+#, python-brace-format
+msgid ""
+"Web fetching tools built on crawl4ai. `fetch` returns page content "
+"directly: Markdown by default, or HTML, or a PNG screenshot. `download` "
+"saves files in any format (including PDF, MHTML, and the raw source) into"
+" a directory on the server and returns their paths. PDFs are transcribed "
+"to Markdown. Duplicate URLs are fetched once. At most {max_urls} URLs per"
+" call."
+msgstr ""
+"crawl4ai を使った Web 取得ツールです。`fetch` はページの内容を直接返します(既定は Markdown で、HTML や "
+"PNG のスクリーンショットも選べます)。`download` "
+"は任意の形式(PDF、MHTML、元のソースを含む)のファイルをサーバー上のディレクトリに保存し、そのパスを返します。PDF は Markdown"
+" に書き起こします。重複した URL は 1 回だけ取得します。1 回の呼び出しで指定できる URL は最大 {max_urls} 件です。"
+
+#, python-brace-format
+msgid ""
+"timeout_s={timeout_s:g} is more than {factor} times the server default "
+"({default:g} s); slow pages may hold the call open for a long time"
+msgstr ""
+"timeout_s={timeout_s:g} はサーバーの既定値({default:g} 秒)の {factor} "
+"倍を超えています。遅いページでは呼び出しが長時間終わらないことがあります"
+
+msgid "Fetch web pages"
+msgstr "Web ページを取得"
+
+msgid ""
+"Fetch one or more web pages and return their content directly: Markdown "
+"(default), HTML, or a PNG screenshot. PDFs are transcribed to Markdown "
+"and images are returned as images. When several URLs are given, each "
+"result starts with a '<!-- crawl4tools: url=... status=... -->' header. "
+"Failed URLs are reported as 'error: ...' lines; the call fails only if "
+"every URL fails. Use `download` to save other formats to files."
+msgstr ""
+"1 つ以上の Web ページを取得し、その内容を直接返します。形式は Markdown(既定)、HTML、PNG "
+"のスクリーンショットのいずれかです。PDF は Markdown に書き起こし、画像は画像として返します。複数の URL "
+"を指定すると、各結果の先頭に '<!-- crawl4tools: url=... status=... -->' ヘッダが付きます。失敗した "
+"URL は 'error: ...' 行で報告します。呼び出しが失敗になるのは、すべての URL "
+"が失敗したときだけです。ほかの形式をファイルに保存するには `download` を使ってください。"
+
+msgid "Download web pages to files"
+msgstr "Web ページをファイルにダウンロード"
+
+msgid ""
+"Fetch one or more URLs and save each result as a file in a directory on "
+"the server, returning the saved paths. Supports Markdown (default), HTML,"
+" PDF, PNG screenshot, MHTML, and the raw source. PDFs are transcribed to "
+"Markdown unless format is 'raw'; non-web content (images, archives, ...) "
+"is saved as served. Existing files are overwritten. The call fails only "
+"if no file was saved."
+msgstr ""
+"1 つ以上の URL "
+"を取得し、それぞれの結果をサーバー上のディレクトリにファイルとして保存して、保存したパスを返します。Markdown(既定)、HTML、PDF、PNG"
+" のスクリーンショット、MHTML、元のソースに対応します。PDF は format が 'raw' でなければ Markdown "
+"に書き起こします。Web "
+"ページ以外の内容(画像、アーカイブなど)は配信されたまま保存します。既存のファイルは上書きします。呼び出しが失敗になるのは、ファイルを 1 "
+"つも保存できなかったときだけです。"
+
+#, python-brace-format
+msgid "could not create {path}: {reason}"
+msgstr "{path} を作成できません: {reason}"
+
+#, python-brace-format
+msgid "{saved} saved, {failed} failed"
+msgstr "保存 {saved} 件、失敗 {failed} 件"
+
+msgid "at least one URL is required"
+msgstr "URL を 1 つ以上指定してください"
+
+#, python-brace-format
+msgid "invalid URL(s): {urls}"
+msgstr "不正な URL です: {urls}"
+
+#, python-brace-format
+msgid "too many URLs: {count} given, at most {limit} per call"
+msgstr "URL が多すぎます: {count} 件(1 回あたり最大 {limit} 件)"
+
+#, python-brace-format
+msgid "directory must be a relative path: {directory}"
+msgstr "directory は相対パスにしてください: {directory}"
+
+#, python-brace-format
+msgid "directory must stay inside the download root: {directory}"
+msgstr "directory にダウンロード先ディレクトリの外は指定できません: {directory}"
+
+#, python-brace-format
+msgid ""
+"binary content ({content_type}, {size} bytes) was not included; use the "
+"download tool to save it: {url}"
+msgstr ""
+"バイナリの内容({content_type}、{size} バイト)は含めていません。保存するには download ツールを使ってください: "
+"{url}"
+
+#, python-brace-format
+msgid ""
+"binary content (unknown type, {size} bytes) was not included; use the "
+"download tool to save it: {url}"
+msgstr "バイナリの内容(形式不明、{size} バイト)は含めていません。保存するには download ツールを使ってください: {url}"
+
+#, python-brace-format
+msgid "{url} -> {path} ({size} bytes)"
+msgstr "{url} -> {path}({size} バイト)"
+
+#, python-brace-format
+msgid "'{path}' is reserved for the health check"
+msgstr "'{path}' はヘルスチェック用に予約されています"
+
+msgid "Serve the Open WebUI web loader and MCP from one process."
+msgstr "Open WebUI の web loader と MCP を 1 つのプロセスから提供します。"
+
+msgid "Host to listen on (both ports)."
+msgstr "待ち受けるホストです(両方のポート)。"
+
+msgid "Open WebUI web loader port."
+msgstr "Open WebUI の web loader が使うポートです。"
+
+msgid "HTTP path the Open WebUI web loader listens on."
+msgstr "Open WebUI の web loader が待ち受ける HTTP パスです。"
+
+msgid ""
+"Require 'Authorization: Bearer <key>' on the web loader (Open WebUI's "
+"External Web Loader API Key)."
+msgstr ""
+"web loader で 'Authorization: Bearer <key>' を必須にします(Open WebUI の External "
+"Web Loader API Key)。"
+
+msgid "Keep only the main content of each page (crawl4ai content filter)."
+msgstr "各ページの本文だけを残します(crawl4ai のコンテンツフィルタ)。"
+
+msgid "MCP Streamable HTTP port."
+msgstr "MCP の Streamable HTTP ポートです。"
+
+msgid "HTTP path to serve the MCP endpoint at."
+msgstr "MCP エンドポイントを提供する HTTP パスです。"
+
+msgid ""
+"Default per-URL timeout in seconds, for web loader requests and MCP tool "
+"calls that omit timeout_s."
+msgstr ""
+"URL ごとのタイムアウト(秒)の既定値です。web loader のリクエストと、timeout_s を省略した MCP "
+"ツール呼び出しで使います。"
+
+msgid "Maximum number of URLs fetched at once across both ports."
+msgstr "両方のポートを通じて同時に取得する URL の最大数です。"
+
+msgid ""
+"Maximum number of URLs accepted in one web loader request or MCP tool "
+"call (Open WebUI sends up to 20)."
+msgstr ""
+"1 回の web loader リクエストまたは MCP ツール呼び出しで受け付ける URL の最大数です(Open WebUI は最大 20 "
+"件送信します)。"
+
+msgid "Root directory the MCP download tool saves files into."
+msgstr "MCP の download ツールがファイルを保存するルートディレクトリです。"
+
+msgid ""
+"YAML or JSON config file; command-line options and CRAWL4SERVER_* "
+"environment variables take precedence."
+msgstr "YAML または JSON の設定ファイルです。コマンドラインのオプションと CRAWL4SERVER_* 環境変数が優先されます。"
+
+msgid "--loader-port and --mcp-port must differ"
+msgstr "--loader-port と --mcp-port は異なる値にしてください"
+
+msgid ""
+"the MCP endpoint has no authentication on a non-loopback host; anyone who"
+" can reach it can use this server"
+msgstr "MCP エンドポイントはループバック以外のホストで認証なしになっています。接続できる人は誰でもこのサーバーを使えます"
+
+msgid ""
+"the web loader has no authentication either; set --loader-api-key to "
+"require one"
+msgstr "web loader も認証なしです。認証を必須にするには --loader-api-key を指定してください"
+
+#, python-brace-format
+msgid "serving Open WebUI web loader on {url}"
+msgstr "{url} で Open WebUI の web loader を提供しています"
+
+#, python-brace-format
+msgid "concurrency must be at least 1, got {value}"
+msgstr "concurrency は 1 以上にしてください(指定値: {value})"
+
+#, python-brace-format
+msgid "max_urls must be at least 1, got {value}"
+msgstr "max_urls は 1 以上にしてください(指定値: {value})"
+
+#, python-brace-format
+msgid "timeout_s must be greater than 0, got {value}"
+msgstr "timeout_s は 0 より大きくしてください(指定値: {value})"
+
+#, python-brace-format
+msgid "unsupported language: {lang} (supported: {supported})"
+msgstr "対応していない言語です: {lang}(対応言語: {supported})"
+
+msgid "timeout_s must be greater than 0"
+msgstr "timeout_s は 0 より大きくしてください"
+

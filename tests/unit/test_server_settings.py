@@ -1,16 +1,21 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from crawl4tools.engine.models import FetchOptions, OutputFormat
+from crawl4tools.i18n import ENGLISH, LocalizedError, get_translator
 from crawl4tools.server.settings import (
     DEFAULT_CONCURRENCY,
     DEFAULT_MAX_URLS,
     DEFAULT_TIMEOUT_S,
     ServerSettings,
+    SettingsError,
 )
+
+JA = get_translator("ja")
 
 
 def test_defaults() -> None:
@@ -113,3 +118,68 @@ def test_fetch_options_rejects_non_positive_timeout_override(timeout_s: float) -
     settings = ServerSettings()
     with pytest.raises(ValueError, match="timeout_s must be greater than 0"):
         settings.fetch_options(timeout_s=timeout_s)
+
+
+# --- lang and translator --------------------------------------------------------
+
+
+def test_default_lang_is_english() -> None:
+    settings = ServerSettings()
+    assert settings.lang == "en"
+    assert settings.translator is ENGLISH
+
+
+def test_translator_follows_lang() -> None:
+    assert ServerSettings(lang="ja").translator is get_translator("ja")
+
+
+def test_rejects_unsupported_lang() -> None:
+    with pytest.raises(SettingsError) as info:
+        ServerSettings(lang="de")
+    assert str(info.value) == "unsupported language: de (supported: en, ja)"
+    assert info.value.render(JA) == "対応していない言語です: de(対応言語: en, ja)"
+
+
+# --- SettingsError ---------------------------------------------------------------
+
+
+def test_settings_error_is_a_localized_value_error() -> None:
+    assert issubclass(SettingsError, LocalizedError)
+    assert issubclass(SettingsError, ValueError)
+
+
+@pytest.mark.parametrize(
+    ("overrides", "english", "japanese"),
+    [
+        (
+            {"concurrency": 0},
+            "concurrency must be at least 1, got 0",
+            "concurrency は 1 以上にしてください(指定値: 0)",
+        ),
+        (
+            {"max_urls": -1},
+            "max_urls must be at least 1, got -1",
+            "max_urls は 1 以上にしてください(指定値: -1)",
+        ),
+        (
+            {"timeout_s": -1.5},
+            "timeout_s must be greater than 0, got -1.5",
+            "timeout_s は 0 より大きくしてください(指定値: -1.5)",
+        ),
+    ],
+    ids=["concurrency", "max_urls", "timeout_s"],
+)
+def test_validation_errors_in_english_and_japanese(
+    overrides: dict[str, Any], english: str, japanese: str
+) -> None:
+    with pytest.raises(SettingsError) as info:
+        ServerSettings(**overrides)
+    assert str(info.value) == english
+    assert info.value.render(JA) == japanese
+
+
+def test_fetch_options_timeout_error_in_english_and_japanese() -> None:
+    with pytest.raises(SettingsError) as info:
+        ServerSettings().fetch_options(timeout_s=0)
+    assert str(info.value) == "timeout_s must be greater than 0"
+    assert info.value.render(JA) == "timeout_s は 0 より大きくしてください"

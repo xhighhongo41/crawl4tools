@@ -14,6 +14,8 @@ from typing import Any
 
 import yaml
 
+from crawl4tools.i18n import N_, LocalizedError
+
 #: The click option names accepted in a crawl4mcp config file, i.e. every
 #: top-level key that :mod:`crawl4tools.server.mcp_main` recognizes.
 CONFIG_KEYS: frozenset[str] = frozenset(
@@ -29,12 +31,17 @@ CONFIG_KEYS: frozenset[str] = frozenset(
         "max_urls",
         "download_dir",
         "verbose",
+        "lang",
     }
 )
 
 
-class ConfigError(ValueError):
-    """Raised when a config file cannot be read or is invalid."""
+class ConfigError(LocalizedError, ValueError):
+    """Raised when a config file cannot be read or is invalid.
+
+    Also a ``ValueError``, so existing ``except ValueError`` clauses keep
+    catching it; ``str()`` is the English message.
+    """
 
 
 def load_config(path: Path, allowed_keys: frozenset[str] = CONFIG_KEYS) -> dict[str, Any]:
@@ -53,24 +60,32 @@ def load_config(path: Path, allowed_keys: frozenset[str] = CONFIG_KEYS) -> dict[
     try:
         text = path.read_text(encoding="utf-8")
     except OSError as exc:
-        raise ConfigError(f"{path}: cannot read config file: {exc.strerror}") from exc
+        raise ConfigError(
+            N_("{path}: cannot read config file: {reason}"), path=str(path), reason=exc.strerror
+        ) from exc
 
     try:
         document = yaml.safe_load(text)
     except yaml.YAMLError as exc:
         reason = str(exc).splitlines()[0]
-        raise ConfigError(f"{path}: invalid YAML/JSON: {reason}") from exc
+        raise ConfigError(
+            N_("{path}: invalid YAML/JSON: {reason}"), path=str(path), reason=reason
+        ) from exc
 
     if document is None:
         return {}
     if not isinstance(document, dict):
-        raise ConfigError(f"{path}: top level must be a mapping of option names to values")
+        raise ConfigError(
+            N_("{path}: top level must be a mapping of option names to values"), path=str(path)
+        )
 
     unknown = sorted(str(key) for key in document if key not in allowed_keys)
     if unknown:
-        allowed = ", ".join(sorted(allowed_keys))
         raise ConfigError(
-            f"{path}: unknown config key(s): {', '.join(unknown)} (allowed keys: {allowed})"
+            N_("{path}: unknown config key(s): {keys} (allowed keys: {allowed})"),
+            path=str(path),
+            keys=", ".join(unknown),
+            allowed=", ".join(sorted(allowed_keys)),
         )
 
     return dict(document)

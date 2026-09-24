@@ -1,6 +1,6 @@
 [project]
 name = "crawl4tools"
-version = "0.3.0"
+version = "0.4.0"
 description = "Web crawler server for Open WebUI and MCP, plus a local download CLI, built on crawl4ai"
 readme = "README.md"
 license = "Apache-2.0"
@@ -30,9 +30,9 @@ dependencies = [
 ]
 
 [project.scripts]
-crawl4cli = "crawl4tools.cli.main:main"
-crawl4mcp = "crawl4tools.server.mcp_main:main"
-crawl4server = "crawl4tools.server.server_main:main"
+crawl4cli = "crawl4tools.cli.main:entry"
+crawl4mcp = "crawl4tools.server.mcp_main:entry"
+crawl4server = "crawl4tools.server.server_main:entry"
 
 [project.urls]
 Homepage = "https://github.com/xhighhongo41/crawl4tools"
@@ -54,6 +54,7 @@ dev = [
     "pytest",
     "pytest-asyncio",
     "types-PyYAML",
+    "babel>=2.18",
 ]
 
 [tool.ruff]
@@ -61,7 +62,7 @@ line-length = 100
 target-version = "py311"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "W"]
+select = ["E", "F", "I", "UP", "B", "W", "INT"]
 
 [tool.mypy]
 # numpy stubs (reached through pytest) use 3.12-only syntax; ruff keeps py311 syntax checks.
