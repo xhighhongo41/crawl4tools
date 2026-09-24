@@ -8,16 +8,20 @@ import click
 import pytest
 from click.testing import CliRunner
 
+from crawl4tools.i18n import ENGLISH, Translator, get_translator
 from crawl4tools.server.cli_options import (
     LOOPBACK_HOSTS,
     config_option,
     fetch_option_decorators,
+    lang_option,
     package_version,
+    path_validator,
+    proxy_validator,
     setup_logging,
-    validate_path,
-    validate_proxy,
     version_option,
 )
+
+JA = get_translator("ja")
 
 HELPS = {
     "timeout_help": "TIMEOUT-HELP",
@@ -27,13 +31,14 @@ HELPS = {
 }
 
 
-def make_command(captured: dict[str, Any]) -> click.Command:
+def make_command(captured: dict[str, Any], t: Translator = ENGLISH) -> click.Command:
     """Return a command using every shared option, recording its arguments."""
 
     @click.command(context_settings={"auto_envvar_prefix": "TESTCMD"})
     @click.option("--name", "name", default="x")
-    @fetch_option_decorators(**HELPS)
+    @fetch_option_decorators(t, **HELPS)
     @config_option(
+        t,
         envvar="TESTCMD_CONFIG",
         allowed_keys=frozenset({"name", "timeout", "concurrency"}),
         help="CONFIG-HELP",
@@ -104,7 +109,7 @@ def test_config_option_env_var(tmp_path: Path) -> None:
 
 def test_version_option() -> None:
     @click.command()
-    @version_option(lambda: "tool 1.2.3")
+    @version_option(ENGLISH, lambda: "tool 1.2.3")
     def command() -> None:
         raise AssertionError("must not run")
 
@@ -116,12 +121,12 @@ def test_version_option() -> None:
 def test_validators() -> None:
     ctx = click.Context(click.Command("c"))
     param = click.Option(["--x"])
-    assert validate_path(ctx, param, "/mcp") == "/mcp"
+    assert path_validator(ENGLISH)(ctx, param, "/mcp") == "/mcp"
     with pytest.raises(click.BadParameter):
-        validate_path(ctx, param, "mcp")
-    assert validate_proxy(ctx, param, None) is None
+        path_validator(ENGLISH)(ctx, param, "mcp")
+    assert proxy_validator(ENGLISH)(ctx, param, None) is None
     with pytest.raises(click.BadParameter):
-        validate_proxy(ctx, param, "ftp://host:21")
+        proxy_validator(ENGLISH)(ctx, param, "ftp://host:21")
 
 
 def test_misc_helpers() -> None:
@@ -134,3 +139,146 @@ def test_setup_logging_silences_noisy_loggers() -> None:
     logging.getLogger("httpx").setLevel(logging.NOTSET)
     setup_logging(False)
     assert logging.getLogger("httpx").level == logging.WARNING
+
+
+# --- translated texts --------------------------------------------------------------
+
+
+def _helps(command: click.Command) -> dict[str | None, str | None]:
+    return {param.name: param.help for param in command.params if isinstance(param, click.Option)}
+
+
+def test_shared_option_help_in_english() -> None:
+    helps = _helps(make_command({}))
+    assert helps["proxy"] == "Proxy URL (http, https, or socks5); e.g. socks5://host:1080."
+    assert helps["fallback"] == (
+        "Retry without the proxy when the proxy itself appears to be at fault."
+    )
+    assert helps["verbose"] == "Enable verbose logging."
+
+
+def test_shared_option_help_in_japanese() -> None:
+    helps = _helps(make_command({}, JA))
+    assert helps["proxy"] == (
+        "プロキシ URL(http、https、socks5 のいずれか)です。例: socks5://host:1080。"
+    )
+    assert helps["fallback"] == (
+        "プロキシ自体に問題があると見られる場合は、プロキシなしで再試行します。"
+    )
+    assert helps["verbose"] == "詳細なログを出力します。"
+    # The help texts given by the caller are used as they are.
+    assert helps["timeout"] == HELPS["timeout_help"]
+    assert helps["config"] == "CONFIG-HELP"
+
+
+def test_version_option_help_follows_the_translator() -> None:
+    for t, expected in [
+        (ENGLISH, "Show the version and exit."),
+        (JA, "バージョンを表示して終了します。"),
+    ]:
+
+        @click.command()
+        @version_option(t, lambda: "tool 1.2.3")
+        def command() -> None:
+            pass
+
+        assert _helps(command)["version"] == expected
+
+
+def test_config_option_error_in_japanese(tmp_path: Path) -> None:
+    bad = tmp_path / "bad.yaml"
+    bad.write_text("max_urls: 3\n", encoding="utf-8")
+    result = CliRunner().invoke(make_command({}, JA), ["--config", str(bad)])
+    assert result.exit_code == 2
+    assert (
+        f"{bad}: 不明な設定キーです: max_urls(使えるキー: concurrency, name, timeout)"
+        in result.output
+    )
+
+
+def test_proxy_validator_error_in_english_and_japanese() -> None:
+    ctx = click.Context(click.Command("c"))
+    param = click.Option(["--x"])
+    with pytest.raises(click.BadParameter) as info:
+        proxy_validator(ENGLISH)(ctx, param, "ftp://host:21")
+    assert info.value.message == "unsupported proxy scheme: ftp://host:21"
+    with pytest.raises(click.BadParameter) as info:
+        proxy_validator(JA)(ctx, param, "ftp://host:21")
+    assert info.value.message == "対応していないプロキシのスキームです: ftp://host:21"
+
+
+def test_proxy_validator_normalizes() -> None:
+    ctx = click.Context(click.Command("c"))
+    param = click.Option(["--x"])
+    assert proxy_validator(JA)(ctx, param, "proxy.example:8080") == "http://proxy.example:8080"
+
+
+def test_path_validator_error_in_english_and_japanese() -> None:
+    ctx = click.Context(click.Command("c"))
+    param = click.Option(["--x"])
+    with pytest.raises(click.BadParameter) as info:
+        path_validator(ENGLISH)(ctx, param, "mcp")
+    assert info.value.message == "must start with '/'"
+    with pytest.raises(click.BadParameter) as info:
+        path_validator(JA)(ctx, param, "mcp")
+    assert info.value.message == "'/' で始めてください"
+
+
+# --- lang_option -------------------------------------------------------------------
+
+
+def make_lang_command(captured: dict[str, Any], t: Translator = ENGLISH) -> click.Command:
+    """Return a command with only ``--lang``, recording the chosen language."""
+
+    @click.command()
+    @lang_option(t, envvar="TESTCMD_LANG")
+    def command(lang: str) -> None:
+        captured["lang"] = lang
+
+    return command
+
+
+@pytest.mark.parametrize(
+    ("args", "env", "expected"),
+    [
+        ([], {}, "en"),
+        (["--lang", "ja"], {}, "ja"),
+        (["--lang", "en"], {}, "en"),
+        ([], {"TESTCMD_LANG": "ja"}, "ja"),
+        (["--lang", "en"], {"TESTCMD_LANG": "ja"}, "en"),
+    ],
+    ids=["default", "option-ja", "option-en", "envvar", "option-beats-envvar"],
+)
+def test_lang_option_values(args: list[str], env: dict[str, str], expected: str) -> None:
+    captured: dict[str, Any] = {}
+    result = CliRunner().invoke(make_lang_command(captured), args, env=env)
+    assert result.exit_code == 0, result.output
+    assert captured == {"lang": expected}
+
+
+@pytest.mark.parametrize(
+    ("args", "env"),
+    [(["--lang", "de"], {}), ([], {"TESTCMD_LANG": "de"})],
+    ids=["option", "envvar"],
+)
+def test_lang_option_rejects_unsupported_language(args: list[str], env: dict[str, str]) -> None:
+    captured: dict[str, Any] = {}
+    result = CliRunner().invoke(make_lang_command(captured), args, env=env)
+    assert result.exit_code == 2
+    assert captured == {}
+
+
+def test_lang_option_help() -> None:
+    result = CliRunner().invoke(make_lang_command({}), ["--help"])
+    assert result.exit_code == 0
+    assert "Language of messages: en or ja." in result.output
+    assert "[default: en]" in result.output
+    assert _helps(make_lang_command({}))["lang"] == "Language of messages: en or ja."
+
+
+def test_lang_option_help_in_japanese() -> None:
+    command = make_lang_command({}, JA)
+    assert _helps(command)["lang"] == "メッセージの言語(en または ja)です。"
+    result = CliRunner().invoke(command, ["--help"])
+    assert result.exit_code == 0
+    assert "メッセージの言語(en または ja)です。" in result.output

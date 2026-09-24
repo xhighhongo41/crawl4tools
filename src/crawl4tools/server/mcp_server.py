@@ -31,6 +31,7 @@ from crawl4tools.cli.output import payload_bytes
 from crawl4tools.engine.fetcher import Fetcher
 from crawl4tools.engine.models import FetchOptions, FetchOutcome, OutputFormat
 from crawl4tools.engine.naming import NameAllocator, filename_for
+from crawl4tools.i18n import ENGLISH
 from crawl4tools.server.results import (
     check_urls,
     download_lines,
@@ -293,11 +294,11 @@ def build_server(
             content.append(TextContent(type="text", text="\n".join(notes)))
         multiple = len(unique) > 1
         for url, outcome in zip(unique, outcomes, strict=True):
-            content.extend(page_blocks(outcome, url, multiple=multiple))
+            content.extend(page_blocks(outcome, url, ENGLISH, multiple=multiple))
         return CallToolResult(
             content=content,
             structured_content={
-                "pages": [page_meta(o, u) for u, o in zip(unique, outcomes, strict=True)],
+                "pages": [page_meta(o, u, ENGLISH) for u, o in zip(unique, outcomes, strict=True)],
                 "duplicates": duplicates,
             },
             is_error=not any(outcome.ok for outcome in outcomes),
@@ -360,21 +361,21 @@ def build_server(
         records: list[dict[str, object]] = []
         for url, outcome in zip(unique, outcomes, strict=True):
             if not outcome.ok:
-                records.append(download_record(outcome, url, None))
+                records.append(download_record(outcome, url, None, ENGLISH))
                 continue
             path = allocator.allocate(filename_for(url, outcome.suggested_extension))
             try:
                 path.write_bytes(payload_bytes(outcome))
             except OSError as exc:
                 error = f"could not write {path}: {exc.strerror}"
-                records.append(download_record(outcome, url, None, error=error))
+                records.append(download_record(outcome, url, None, ENGLISH, error=error))
             else:
-                records.append(download_record(outcome, url, path))
+                records.append(download_record(outcome, url, path, ENGLISH))
 
         saved = sum(1 for record in records if record["ok"])
         lines = list(notes)
         for record in records:
-            lines.extend(download_lines(record))
+            lines.extend(download_lines(record, ENGLISH))
         lines.append(f"done: {saved} saved, {len(records) - saved} failed")
         return CallToolResult(
             content=[TextContent(type="text", text="\n".join(lines))],

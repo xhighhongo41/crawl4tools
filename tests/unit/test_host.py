@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import socket
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any
@@ -14,10 +14,11 @@ import uvicorn
 from conftest import FakeCrawler, FakeHttp
 from mcp.client.client import Client
 from mcp.types import TextContent
-from starlette.types import Message, Receive, Scope, Send
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from crawl4tools.engine.fetcher import Fetcher
 from crawl4tools.engine.models import FetchOptions
+from crawl4tools.i18n import ENGLISH, LocalizedError, Translator, get_translator
 from crawl4tools.server import (
     ListenError,
     LoaderSettings,
@@ -26,12 +27,14 @@ from crawl4tools.server import (
     ServerSettings,
     bind_sockets,
 )
+from crawl4tools.server import host as host_module
 from crawl4tools.server.host import serve_async
 
 URL = "https://example.com/page"
 URL2 = "https://example.com/other"
 URL3 = "https://example.com/third"
 TIMEOUT = 20.0
+JA = get_translator("ja")
 
 # --- PortDispatcher -------------------------------------------------------------
 
@@ -94,7 +97,7 @@ def body_of(sent: list[Message]) -> bytes:
 
 async def test_dispatcher_routes_by_local_port() -> None:
     one, two = RecordingApp("one"), RecordingApp("two")
-    dispatcher = PortDispatcher({8001: one, 8002: two})
+    dispatcher = PortDispatcher({8001: one, 8002: two}, ENGLISH)
 
     sent = await run_asgi(dispatcher, http_scope(("127.0.0.1", 8002)))
     assert body_of(sent) == b"two"
@@ -107,17 +110,26 @@ async def test_dispatcher_routes_by_local_port() -> None:
 @pytest.mark.parametrize("server", [("127.0.0.1", 9999), None])
 async def test_dispatcher_unknown_port_is_404_json(server: tuple[str, int] | None) -> None:
     app = RecordingApp("one")
-    sent = await run_asgi(PortDispatcher({8001: app}), http_scope(server))
+    sent = await run_asgi(PortDispatcher({8001: app}, ENGLISH), http_scope(server))
     assert sent[0]["type"] == "http.response.start"
     assert sent[0]["status"] == 404
     assert json.loads(body_of(sent)) == {"error": "not found"}
     assert app.scopes == []
 
 
+async def test_dispatcher_unknown_port_404_in_japanese() -> None:
+    app = RecordingApp("one")
+    sent = await run_asgi(PortDispatcher({8001: app}, JA), http_scope(("127.0.0.1", 9999)))
+    assert sent[0]["status"] == 404
+    assert json.loads(body_of(sent)) == {"error": "見つかりません"}
+
+
 async def test_dispatcher_unknown_port_websocket_is_closed() -> None:
     app = RecordingApp("one")
     scope = {**http_scope(("127.0.0.1", 9999)), "type": "websocket"}
-    sent = await run_asgi(PortDispatcher({8001: app}), scope, [{"type": "websocket.connect"}])
+    sent = await run_asgi(
+        PortDispatcher({8001: app}, ENGLISH), scope, [{"type": "websocket.connect"}]
+    )
     assert sent[-1]["type"] == "websocket.close"
     assert app.scopes == []
 
@@ -126,7 +138,7 @@ async def test_dispatcher_completes_lifespan() -> None:
     app = RecordingApp("one")
     scope: Scope = {"type": "lifespan", "asgi": {"version": "3.0"}}
     sent = await run_asgi(
-        PortDispatcher({8001: app}),
+        PortDispatcher({8001: app}, ENGLISH),
         scope,
         [{"type": "lifespan.startup"}, {"type": "lifespan.shutdown"}],
     )
@@ -188,6 +200,28 @@ def test_bind_sockets_unresolvable_host_raises_listen_error() -> None:
         bind_sockets("no-such-host.invalid", [0])
     assert info.value.host == "no-such-host.invalid"
     assert info.value.port == 0
+
+
+def test_listen_error_message_in_english_and_japanese() -> None:
+    error = ListenError("127.0.0.1", 8766, "Address already in use")
+    assert isinstance(error, OSError)
+    assert isinstance(error, LocalizedError)
+    assert (error.host, error.port, error.reason) == ("127.0.0.1", 8766, "Address already in use")
+    assert str(error) == "cannot listen on 127.0.0.1:8766: Address already in use"
+    assert error.render(ENGLISH) == str(error)
+    assert error.render(JA) == "127.0.0.1:8766 で待ち受けできません: Address already in use"
+
+
+def test_listen_error_brackets_ipv6_addresses() -> None:
+    error = ListenError("::1", 8765, "busy")
+    assert str(error) == "cannot listen on [::1]:8765: busy"
+    assert error.render(JA) == "[::1]:8765 で待ち受けできません: busy"
+
+
+def test_listen_error_is_caught_as_os_error() -> None:
+    with pytest.raises(OSError) as info:
+        raise ListenError("127.0.0.1", 1, "denied")
+    assert str(info.value) == "cannot listen on 127.0.0.1:1: denied"
 
 
 def _ipv6_available() -> bool:
@@ -423,3 +457,40 @@ async def test_serve_async_port_in_use_raises_listen_error() -> None:
             )
     assert info.value.port == busy
     assert factory_calls == 0
+
+
+@pytest.mark.parametrize("lang", ["en", "ja"])
+async def test_serve_async_dispatcher_uses_the_settings_translator(
+    monkeypatch: pytest.MonkeyPatch, lang: str
+) -> None:
+    translators: list[Translator] = []
+
+    class RecordingDispatcher(PortDispatcher):
+        def __init__(self, apps: Mapping[int, ASGIApp], t: Translator) -> None:
+            translators.append(t)
+            super().__init__(apps, t)
+
+    monkeypatch.setattr(host_module, "PortDispatcher", RecordingDispatcher)
+
+    def on_started(server: uvicorn.Server, ports: dict[str, int]) -> None:
+        server.should_exit = True
+
+    fake = FakeCrawler()
+
+    def factory(options: FetchOptions) -> Fetcher:
+        return Fetcher(options, crawler_factory=fake.factory, http_client_factory=FakeHttp())
+
+    await asyncio.wait_for(
+        serve_async(
+            ServerSettings(lang=lang),
+            LoaderSettings(),
+            McpSettings(),
+            host="127.0.0.1",
+            loader_port=0,
+            mcp_port=0,
+            fetcher_factory=factory,
+            on_started=on_started,
+        ),
+        TIMEOUT,
+    )
+    assert translators == [get_translator(lang)]

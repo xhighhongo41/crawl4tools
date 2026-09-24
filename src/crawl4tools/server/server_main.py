@@ -15,14 +15,15 @@ import uvicorn
 
 from crawl4tools import __version__
 from crawl4tools.cli.main import CRAWL4AI_ATTRIBUTION
+from crawl4tools.i18n import ENGLISH
 from crawl4tools.server import host as host_module
 from crawl4tools.server.cli_options import (
     LOOPBACK_HOSTS,
     config_option,
     fetch_option_decorators,
     package_version,
+    path_validator,
     setup_logging,
-    validate_path,
     version_option,
 )
 from crawl4tools.server.host import McpSettings, StartedCallback
@@ -71,7 +72,7 @@ def _address(host: str, port: int) -> str:
 
 def validate_loader_path(ctx: click.Context, param: click.Parameter, value: str) -> str:
     """Click callback for ``--loader-path``: a path, distinct from ``/health``."""
-    value = validate_path(ctx, param, value)
+    value = path_validator(ENGLISH)(ctx, param, value)
     if value == _HEALTH_PATH:
         raise click.BadParameter(f"'{_HEALTH_PATH}' is reserved for the health check")
     return value
@@ -158,10 +159,11 @@ def run_server(
     "mcp_path",
     default="/mcp",
     show_default=True,
-    callback=validate_path,
+    callback=path_validator(ENGLISH),
     help="HTTP path to serve the MCP endpoint at.",
 )
 @fetch_option_decorators(
+    ENGLISH,
     timeout_help=(
         "Default per-URL timeout in seconds, for web loader requests and MCP tool "
         "calls that omit timeout_s."
@@ -174,6 +176,7 @@ def run_server(
     download_dir_help="Root directory the MCP download tool saves files into.",
 )
 @config_option(
+    ENGLISH,
     envvar="CRAWL4SERVER_CONFIG",
     allowed_keys=SERVER_CONFIG_KEYS,
     help=(
@@ -181,7 +184,7 @@ def run_server(
         "variables take precedence."
     ),
 )
-@version_option(version_text)
+@version_option(ENGLISH, version_text)
 def main(
     host: str,
     loader_port: int,

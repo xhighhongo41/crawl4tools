@@ -11,13 +11,14 @@ from mcp.server.mcpserver import MCPServer
 
 from crawl4tools import __version__
 from crawl4tools.cli.main import CRAWL4AI_ATTRIBUTION
+from crawl4tools.i18n import ENGLISH
 from crawl4tools.server.cli_options import (
     LOOPBACK_HOSTS,
     config_option,
     fetch_option_decorators,
     package_version,
+    path_validator,
     setup_logging,
-    validate_path,
     version_option,
 )
 from crawl4tools.server.config import CONFIG_KEYS
@@ -71,16 +72,18 @@ def create_server(settings: ServerSettings) -> MCPServer[Any]:
     "path",
     default="/mcp",
     show_default=True,
-    callback=validate_path,
+    callback=path_validator(ENGLISH),
     help="HTTP path to serve the MCP endpoint at (http transport only).",
 )
 @fetch_option_decorators(
+    ENGLISH,
     timeout_help="Default per-URL timeout in seconds, used when a tool call omits timeout_s.",
     concurrency_help="Maximum number of URLs fetched at once across every tool call.",
     max_urls_help="Maximum number of URLs accepted in a single tool call.",
     download_dir_help="Root directory the download tool saves files into.",
 )
 @config_option(
+    ENGLISH,
     envvar="CRAWL4MCP_CONFIG",
     allowed_keys=CONFIG_KEYS,
     help=(
@@ -88,7 +91,7 @@ def create_server(settings: ServerSettings) -> MCPServer[Any]:
         "variables take precedence."
     ),
 )
-@version_option(version_text)
+@version_option(ENGLISH, version_text)
 def main(
     transport: str,
     host: str,

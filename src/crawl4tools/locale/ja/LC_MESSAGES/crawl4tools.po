@@ -182,3 +182,91 @@ msgstr "プロキシ URL のポートが不正です: {proxy}"
 msgid "proxy URL is missing a port: {proxy}"
 msgstr "プロキシ URL にポートがありません: {proxy}"
 
+msgid "must start with '/'"
+msgstr "'/' で始めてください"
+
+msgid "Enable verbose logging."
+msgstr "詳細なログを出力します。"
+
+msgid "Language of messages: en or ja."
+msgstr "メッセージの言語(en または ja)です。"
+
+#, python-brace-format
+msgid "{path}: cannot read config file: {reason}"
+msgstr "{path}: 設定ファイルを読み込めません: {reason}"
+
+#, python-brace-format
+msgid "{path}: invalid YAML/JSON: {reason}"
+msgstr "{path}: YAML/JSON として不正です: {reason}"
+
+#, python-brace-format
+msgid "{path}: top level must be a mapping of option names to values"
+msgstr "{path}: 最上位はオプション名と値の対応(マッピング)にしてください"
+
+#, python-brace-format
+msgid "{path}: unknown config key(s): {keys} (allowed keys: {allowed})"
+msgstr "{path}: 不明な設定キーです: {keys}(使えるキー: {allowed})"
+
+#, python-brace-format
+msgid "cannot listen on {address}: {reason}"
+msgstr "{address} で待ち受けできません: {reason}"
+
+msgid "not found"
+msgstr "見つかりません"
+
+msgid "at least one URL is required"
+msgstr "URL を 1 つ以上指定してください"
+
+#, python-brace-format
+msgid "invalid URL(s): {urls}"
+msgstr "不正な URL です: {urls}"
+
+#, python-brace-format
+msgid "too many URLs: {count} given, at most {limit} per call"
+msgstr "URL が多すぎます: {count} 件(1 回あたり最大 {limit} 件)"
+
+#, python-brace-format
+msgid "directory must be a relative path: {directory}"
+msgstr "directory は相対パスにしてください: {directory}"
+
+#, python-brace-format
+msgid "directory must stay inside the download root: {directory}"
+msgstr "directory にダウンロード先ディレクトリの外は指定できません: {directory}"
+
+#, python-brace-format
+msgid ""
+"binary content ({content_type}, {size} bytes) was not included; use the "
+"download tool to save it: {url}"
+msgstr ""
+"バイナリの内容({content_type}、{size} バイト)は含めていません。保存するには download ツールを使ってください: "
+"{url}"
+
+#, python-brace-format
+msgid ""
+"binary content (unknown type, {size} bytes) was not included; use the "
+"download tool to save it: {url}"
+msgstr "バイナリの内容(形式不明、{size} バイト)は含めていません。保存するには download ツールを使ってください: {url}"
+
+#, python-brace-format
+msgid "{url} -> {path} ({size} bytes)"
+msgstr "{url} -> {path}({size} バイト)"
+
+#, python-brace-format
+msgid "concurrency must be at least 1, got {value}"
+msgstr "concurrency は 1 以上にしてください(指定値: {value})"
+
+#, python-brace-format
+msgid "max_urls must be at least 1, got {value}"
+msgstr "max_urls は 1 以上にしてください(指定値: {value})"
+
+#, python-brace-format
+msgid "timeout_s must be greater than 0, got {value}"
+msgstr "timeout_s は 0 より大きくしてください(指定値: {value})"
+
+#, python-brace-format
+msgid "unsupported language: {lang} (supported: {supported})"
+msgstr "対応していない言語です: {lang}(対応言語: {supported})"
+
+msgid "timeout_s must be greater than 0"
+msgstr "timeout_s は 0 より大きくしてください"
+
