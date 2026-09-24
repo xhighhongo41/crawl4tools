@@ -579,3 +579,367 @@ async def test_fetch_all_empty(tmp_path: Path) -> None:
     async with open_state(settings, fake_factory(FakeCrawler())) as state:
         assert await fetch_all(state, [], settings.fetch_options(), on_done) == []
     assert events == []
+
+
+# --- message language ----------------------------------------------------------------
+
+EN_TITLES = {"fetch": "Fetch web pages", "download": "Download web pages to files"}
+EN_DESCRIPTIONS = {
+    "fetch": (
+        "Fetch one or more web pages and return their content directly: Markdown "
+        "(default), HTML, or a PNG screenshot. PDFs are transcribed to Markdown and "
+        "images are returned as images. When several URLs are given, each result "
+        "starts with a '<!-- crawl4tools: url=... status=... -->' header. Failed "
+        "URLs are reported as 'error: ...' lines; the call fails only if every URL "
+        "fails. Use `download` to save other formats to files."
+    ),
+    "download": (
+        "Fetch one or more URLs and save each result as a file in a directory on "
+        "the server, returning the saved paths. Supports Markdown (default), HTML, "
+        "PDF, PNG screenshot, MHTML, and the raw source. PDFs are transcribed to "
+        "Markdown unless format is 'raw'; non-web content (images, archives, ...) is "
+        "saved as served. Existing files are overwritten. The call fails only if no "
+        "file was saved."
+    ),
+}
+EN_PARAMETERS = {
+    "urls": (
+        "URLs to fetch (http or https), at most the server's per-call limit (see the "
+        "server instructions); duplicates are fetched once."
+    ),
+    "fit": (
+        "Keep only the main content (drops menus, footers, and the like); falls back to "
+        "the full page when nothing is left. Markdown only."
+    ),
+    "citations": "Turn links into numbered references listed at the end. Markdown only.",
+    "ignore_links": "Drop links from the Markdown output. Markdown only.",
+    "ignore_images": "Drop images from the Markdown output. Markdown only.",
+    "timeout_s": "Page load timeout per URL in seconds; defaults to the server setting.",
+    "directory": (
+        "Subdirectory of the server's download directory to save into; must stay inside "
+        "it. Defaults to the download directory itself."
+    ),
+}
+EN_FORMATS = {
+    "fetch": (
+        "Output format: 'markdown' (default), 'html' (rendered page HTML), or "
+        "'screenshot' (full-page PNG image)."
+    ),
+    "download": (
+        "File format: 'markdown' (default), 'html', 'pdf' (page printed to PDF), "
+        "'screenshot' (PNG), 'mhtml' (single-file web archive), or 'raw' (the original "
+        "response bytes, e.g. a PDF or image as served)."
+    ),
+}
+EN_INSTRUCTIONS_7 = (
+    "Web fetching tools built on crawl4ai. "
+    "`fetch` returns page content directly: Markdown by default, or HTML, or a PNG "
+    "screenshot. "
+    "`download` saves files in any format (including PDF, MHTML, and the raw "
+    "source) into a directory on the server and returns their paths. "
+    "PDFs are transcribed to Markdown. Duplicate URLs are fetched once. "
+    "At most 7 URLs per call."
+)
+
+JA_TITLES = {"fetch": "Web ページを取得", "download": "Web ページをファイルにダウンロード"}
+JA_DESCRIPTIONS = {
+    "fetch": (
+        "1 つ以上の Web ページを取得し、その内容を直接返します。形式は Markdown(既定)、HTML、"
+        "PNG のスクリーンショットのいずれかです。PDF は Markdown に書き起こし、画像は画像として"
+        "返します。複数の URL を指定すると、各結果の先頭に "
+        "'<!-- crawl4tools: url=... status=... -->' ヘッダが付きます。失敗した URL は "
+        "'error: ...' 行で報告します。呼び出しが失敗になるのは、すべての URL が失敗したとき"
+        "だけです。ほかの形式をファイルに保存するには `download` を使ってください。"
+    ),
+    "download": (
+        "1 つ以上の URL を取得し、それぞれの結果をサーバー上のディレクトリにファイルとして保存"
+        "して、保存したパスを返します。Markdown(既定)、HTML、PDF、PNG のスクリーンショット、"
+        "MHTML、元のソースに対応します。PDF は format が 'raw' でなければ Markdown に書き起こし"
+        "ます。Web ページ以外の内容(画像、アーカイブなど)は配信されたまま保存します。既存の"
+        "ファイルは上書きします。呼び出しが失敗になるのは、ファイルを 1 つも保存できなかった"
+        "ときだけです。"
+    ),
+}
+JA_PARAMETERS = {
+    "urls": (
+        "取得する URL(http または https)です。1 回の呼び出しにつきサーバーの上限まで指定"
+        "できます(サーバーの instructions を参照)。重複した URL は 1 回だけ取得します。"
+    ),
+    "fit": (
+        "本文だけを残します(メニューやフッターなどを除きます)。何も残らなければページ全体を"
+        "使います。Markdown のときだけ有効です。"
+    ),
+    "citations": (
+        "リンクを番号付きの参照に置き換え、末尾に一覧にします。Markdown のときだけ有効です。"
+    ),
+    "ignore_links": "Markdown の出力からリンクを除きます。Markdown のときだけ有効です。",
+    "ignore_images": "Markdown の出力から画像を除きます。Markdown のときだけ有効です。",
+    "timeout_s": (
+        "URL ごとのページ読み込みのタイムアウト(秒)です。省略時はサーバーの設定値を使います。"
+    ),
+    "directory": (
+        "保存先とする、サーバーのダウンロード先ディレクトリの下のサブディレクトリです。その外"
+        "は指定できません。省略時はダウンロード先ディレクトリそのものに保存します。"
+    ),
+}
+JA_FORMATS = {
+    "fetch": (
+        "出力形式です。'markdown'(既定)、'html'(描画後のページの HTML)、'screenshot'"
+        "(ページ全体の PNG 画像)のいずれかです。"
+    ),
+    "download": (
+        "ファイル形式です。'markdown'(既定)、'html'、'pdf'(ページを PDF に印刷したもの)、"
+        "'screenshot'(PNG)、'mhtml'(1 ファイルにまとめた Web アーカイブ)、'raw'(応答の元の"
+        "バイト列。例: 配信されたままの PDF や画像)のいずれかです。"
+    ),
+}
+JA_INSTRUCTIONS_7 = (
+    "crawl4ai を使った Web 取得ツールです。`fetch` はページの内容を直接返します(既定は "
+    "Markdown で、HTML や PNG のスクリーンショットも選べます)。`download` は任意の形式(PDF、"
+    "MHTML、元のソースを含む)のファイルをサーバー上のディレクトリに保存し、そのパスを返します。"
+    "PDF は Markdown に書き起こします。重複した URL は 1 回だけ取得します。1 回の呼び出しで"
+    "指定できる URL は最大 7 件です。"
+)
+
+PAGE_KEYS = {
+    "url",
+    "final_url",
+    "title",
+    "ok",
+    "status_code",
+    "content_kind",
+    "content_type",
+    "chars",
+    "bytes",
+    "error",
+    "notes",
+}
+FILE_KEYS = {
+    "url",
+    "ok",
+    "path",
+    "bytes",
+    "content_kind",
+    "content_type",
+    "status_code",
+    "error",
+    "notes",
+}
+
+
+async def tool_texts(server: MCPServer[Any]) -> dict[str, dict[str, Any]]:
+    """Return each tool's title, description and parameter descriptions."""
+    async with Client(server) as client:
+        tools = (await client.list_tools()).tools
+    return {
+        tool.name: {
+            "title": tool.title,
+            "description": tool.description,
+            "parameters": {
+                name: spec["description"] for name, spec in tool.input_schema["properties"].items()
+            },
+        }
+        for tool in tools
+    }
+
+
+def expected_tool_texts(
+    titles: dict[str, str],
+    descriptions: dict[str, str],
+    parameters: dict[str, str],
+    formats: dict[str, str],
+) -> dict[str, dict[str, Any]]:
+    """Build the value :func:`tool_texts` should return for one language."""
+    common = {name: text for name, text in parameters.items() if name != "directory"}
+    return {
+        "fetch": {
+            "title": titles["fetch"],
+            "description": descriptions["fetch"],
+            "parameters": {**common, "format": formats["fetch"]},
+        },
+        "download": {
+            "title": titles["download"],
+            "description": descriptions["download"],
+            "parameters": {**parameters, "format": formats["download"]},
+        },
+    }
+
+
+async def test_english_tool_texts_are_unchanged(tmp_path: Path) -> None:
+    server, _, _ = make_server(tmp_path)
+    expected = expected_tool_texts(EN_TITLES, EN_DESCRIPTIONS, EN_PARAMETERS, EN_FORMATS)
+    assert await tool_texts(server) == expected
+
+
+async def test_japanese_tool_texts(tmp_path: Path) -> None:
+    server, _, _ = make_server(tmp_path, lang="ja")
+    expected = expected_tool_texts(JA_TITLES, JA_DESCRIPTIONS, JA_PARAMETERS, JA_FORMATS)
+    assert await tool_texts(server) == expected
+
+
+@pytest.mark.parametrize(
+    ("settings", "expected"),
+    [({}, EN_INSTRUCTIONS_7), ({"lang": "ja"}, JA_INSTRUCTIONS_7)],
+    ids=["en", "ja"],
+)
+def test_instructions_follow_the_language(
+    tmp_path: Path, settings: dict[str, Any], expected: str
+) -> None:
+    server, _, _ = make_server(tmp_path, max_urls=7, **settings)
+    assert server.instructions == expected
+
+
+@pytest.mark.parametrize(
+    ("args", "message"),
+    [
+        ({"urls": ["not-a-url"]}, "不正な URL です: not-a-url"),
+        ({"urls": []}, "URL を 1 つ以上指定してください"),
+        (
+            {"urls": [URL, URL2, "https://example.com/3"]},
+            "URL が多すぎます: 3 件(1 回あたり最大 2 件)",
+        ),
+        ({"urls": [URL], "timeout_s": 0}, "timeout_s は 0 より大きくしてください"),
+    ],
+    ids=["invalid-url", "no-url", "too-many", "zero-timeout"],
+)
+@pytest.mark.parametrize("tool", ["fetch", "download"])
+async def test_japanese_argument_errors(
+    tmp_path: Path, tool: str, args: dict[str, Any], message: str
+) -> None:
+    server, crawler, http = make_server(tmp_path, max_urls=2, lang="ja")
+    result = await call(server, tool, args)
+    assert result.is_error
+    assert message in texts(result)[0]
+    assert crawler.calls == []
+    assert http.requests == []
+
+
+@pytest.mark.parametrize(
+    ("directory", "message"),
+    [
+        ("../x", "directory にダウンロード先ディレクトリの外は指定できません: ../x"),
+        ("/tmp/crawl4tools-abs", "directory は相対パスにしてください: /tmp/crawl4tools-abs"),
+    ],
+    ids=["outside", "absolute"],
+)
+async def test_japanese_directory_errors(tmp_path: Path, directory: str, message: str) -> None:
+    server, crawler, _ = make_server(tmp_path / "root", lang="ja")
+    result = await call(server, "download", {"urls": [URL], "directory": directory})
+    assert result.is_error
+    assert message in texts(result)[0]
+    assert crawler.calls == []
+
+
+@pytest.mark.parametrize("tool", ["fetch", "download"])
+async def test_japanese_duplicate_note_keeps_the_english_prefix(tmp_path: Path, tool: str) -> None:
+    server, _, _ = make_server(tmp_path, lang="ja")
+    result = await call(server, tool, {"urls": [URL, URL]})
+    assert not result.is_error
+    assert texts(result)[0].splitlines()[0] == f"note: 重複した URL を無視しました: {URL}"
+
+
+@pytest.mark.parametrize(
+    ("lang", "expected"),
+    [
+        (
+            "en",
+            "note: timeout_s=101 is more than 10 times the server default (10 s); "
+            "slow pages may hold the call open for a long time",
+        ),
+        (
+            "ja",
+            "note: timeout_s=101 はサーバーの既定値(10 秒)の 10 倍を超えています。"
+            "遅いページでは呼び出しが長時間終わらないことがあります",
+        ),
+    ],
+    ids=["en", "ja"],
+)
+async def test_long_timeout_note_follows_the_language(
+    tmp_path: Path, lang: str, expected: str
+) -> None:
+    server, _, _ = make_server(tmp_path, timeout_s=10, lang=lang)
+    result = await call(server, "fetch", {"urls": [URL], "timeout_s": 101})
+    assert not result.is_error
+    assert texts(result)[0] == expected
+
+
+async def test_japanese_fetch_error_line_and_structured_content(tmp_path: Path) -> None:
+    crawler = FakeCrawler({URL: fail("net::ERR_NAME_NOT_RESOLVED"), URL2: make_result()})
+    server, _, _ = make_server(tmp_path, crawler=crawler, lang="ja")
+    result = await call(server, "fetch", {"urls": [URL, URL2]})
+    assert not result.is_error
+    blocks = texts(result)
+    assert blocks[0] == (
+        f"<!-- crawl4tools: url={URL} status=- -->\nerror: ホスト名を解決できません: {URL}"
+    )
+    assert blocks[1].startswith(f"<!-- crawl4tools: url={URL2} status=200 -->")
+    pages = structured(result)["pages"]
+    assert set(pages[0]) == PAGE_KEYS
+    assert pages[0]["error"] == f"ホスト名を解決できません: {URL}"
+    assert pages[1]["error"] is None
+
+
+async def test_japanese_notes_in_fetch_blocks_and_structured_content(tmp_path: Path) -> None:
+    def handler(url: str, config: Any) -> Any:
+        if config.proxy_config is not None:
+            return fail("net::ERR_PROXY_CONNECTION_FAILED at " + url)
+        return make_result()
+
+    server, _, _ = make_server(
+        tmp_path, crawler=FakeCrawler(handler), proxy="http://proxy.example:8080", lang="ja"
+    )
+    result = await call(server, "fetch", {"urls": [URL]})
+    assert not result.is_error
+    note = (
+        f"プロキシ経由で失敗しました(プロキシに接続できません(http://proxy.example:8080): "
+        f"{URL})。直接接続で再試行しました"
+    )
+    assert texts(result)[0] == f"<!-- note: {note} -->\n# Hello"
+    page = structured(result)["pages"][0]
+    assert set(page) == PAGE_KEYS
+    assert page["notes"] == [note]
+
+
+async def test_japanese_download_lines_keep_the_english_prefixes(tmp_path: Path) -> None:
+    crawler = FakeCrawler({URL: make_result(), URL2: fail("net::ERR_NAME_NOT_RESOLVED")})
+    server, _, _ = make_server(tmp_path, crawler=crawler, lang="ja")
+    result = await call(server, "download", {"urls": [URL, URL2]})
+    assert not result.is_error
+    path = tmp_path.resolve() / filename_for(URL, ".md")
+    assert texts(result)[0].splitlines() == [
+        f"saved: {URL} -> {path}(7 バイト)",
+        f"error: ホスト名を解決できません: {URL2}",
+        "done: 保存 1 件、失敗 1 件",
+    ]
+    files = structured(result)["files"]
+    assert [set(record) for record in files] == [FILE_KEYS, FILE_KEYS]
+    assert files[1]["error"] == f"ホスト名を解決できません: {URL2}"
+
+
+async def test_japanese_download_all_failed(tmp_path: Path) -> None:
+    server, _, _ = make_server(
+        tmp_path, crawler=FakeCrawler(make_result(status_code=500)), lang="ja"
+    )
+    result = await call(server, "download", {"urls": [URL]})
+    assert result.is_error
+    assert texts(result)[0].splitlines()[-1] == "done: 保存 0 件、失敗 1 件"
+
+
+async def test_japanese_download_write_failure(tmp_path: Path) -> None:
+    (tmp_path / filename_for(URL, ".md")).mkdir()
+    server, _, _ = make_server(tmp_path, lang="ja")
+    result = await call(server, "download", {"urls": [URL]})
+    assert result.is_error
+    path = tmp_path.resolve() / filename_for(URL, ".md")
+    record = structured(result)["files"][0]
+    assert record["error"].startswith(f"{path} に書き込めません: ")
+    assert f"error: {path} に書き込めません: " in texts(result)[0]
+
+
+async def test_japanese_directory_creation_failure(tmp_path: Path) -> None:
+    (tmp_path / "blocker").write_text("not a directory", encoding="utf-8")
+    server, _, _ = make_server(tmp_path, lang="ja")
+    result = await call(server, "download", {"urls": [URL], "directory": "blocker/sub"})
+    assert result.is_error
+    target = tmp_path.resolve() / "blocker" / "sub"
+    assert f"{target} を作成できません: " in texts(result)[0]

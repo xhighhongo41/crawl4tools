@@ -214,6 +214,158 @@ msgstr "{address} で待ち受けできません: {reason}"
 msgid "not found"
 msgstr "見つかりません"
 
+msgid "Run the crawl4tools MCP server."
+msgstr "crawl4tools の MCP サーバーを起動します。"
+
+msgid "Transport to serve the MCP protocol over."
+msgstr "MCP プロトコルを提供するトランスポートです。"
+
+msgid "Host to listen on (http transport only)."
+msgstr "待ち受けるホストです(http トランスポートのみ)。"
+
+msgid "Port to listen on (http transport only)."
+msgstr "待ち受けるポートです(http トランスポートのみ)。"
+
+msgid "HTTP path to serve the MCP endpoint at (http transport only)."
+msgstr "MCP エンドポイントを提供する HTTP パスです(http トランスポートのみ)。"
+
+msgid "Default per-URL timeout in seconds, used when a tool call omits timeout_s."
+msgstr "URL ごとのタイムアウト(秒)の既定値です。ツール呼び出しで timeout_s を省略したときに使います。"
+
+msgid "Maximum number of URLs fetched at once across every tool call."
+msgstr "すべてのツール呼び出しを通じて同時に取得する URL の最大数です。"
+
+msgid "Maximum number of URLs accepted in a single tool call."
+msgstr "1 回のツール呼び出しで受け付ける URL の最大数です。"
+
+msgid "Root directory the download tool saves files into."
+msgstr "download ツールがファイルを保存するルートディレクトリです。"
+
+msgid ""
+"YAML or JSON config file; command-line options and CRAWL4MCP_* "
+"environment variables take precedence."
+msgstr "YAML または JSON の設定ファイルです。コマンドラインのオプションと CRAWL4MCP_* 環境変数が優先されます。"
+
+#, python-brace-format
+msgid ""
+"listening on {host}:{port} without authentication; anyone who can reach "
+"it can use this server"
+msgstr "{host}:{port} で認証なしで待ち受けています。到達できる人は誰でもこのサーバーを使えます"
+
+#, python-brace-format
+msgid "serving MCP on {url}"
+msgstr "{url} で MCP を提供しています"
+
+msgid ""
+"URLs to fetch (http or https), at most the server's per-call limit (see "
+"the server instructions); duplicates are fetched once."
+msgstr ""
+"取得する URL(http または https)です。1 回の呼び出しにつきサーバーの上限まで指定できます(サーバーの instructions "
+"を参照)。重複した URL は 1 回だけ取得します。"
+
+msgid ""
+"Keep only the main content (drops menus, footers, and the like); falls "
+"back to the full page when nothing is left. Markdown only."
+msgstr "本文だけを残します(メニューやフッターなどを除きます)。何も残らなければページ全体を使います。Markdown のときだけ有効です。"
+
+msgid "Turn links into numbered references listed at the end. Markdown only."
+msgstr "リンクを番号付きの参照に置き換え、末尾に一覧にします。Markdown のときだけ有効です。"
+
+msgid "Drop links from the Markdown output. Markdown only."
+msgstr "Markdown の出力からリンクを除きます。Markdown のときだけ有効です。"
+
+msgid "Drop images from the Markdown output. Markdown only."
+msgstr "Markdown の出力から画像を除きます。Markdown のときだけ有効です。"
+
+msgid "Page load timeout per URL in seconds; defaults to the server setting."
+msgstr "URL ごとのページ読み込みのタイムアウト(秒)です。省略時はサーバーの設定値を使います。"
+
+msgid ""
+"Output format: 'markdown' (default), 'html' (rendered page HTML), or "
+"'screenshot' (full-page PNG image)."
+msgstr ""
+"出力形式です。'markdown'(既定)、'html'(描画後のページの HTML)、'screenshot'(ページ全体の PNG "
+"画像)のいずれかです。"
+
+msgid ""
+"File format: 'markdown' (default), 'html', 'pdf' (page printed to PDF), "
+"'screenshot' (PNG), 'mhtml' (single-file web archive), or 'raw' (the "
+"original response bytes, e.g. a PDF or image as served)."
+msgstr ""
+"ファイル形式です。'markdown'(既定)、'html'、'pdf'(ページを PDF "
+"に印刷したもの)、'screenshot'(PNG)、'mhtml'(1 ファイルにまとめた Web "
+"アーカイブ)、'raw'(応答の元のバイト列。例: 配信されたままの PDF や画像)のいずれかです。"
+
+msgid ""
+"Subdirectory of the server's download directory to save into; must stay "
+"inside it. Defaults to the download directory itself."
+msgstr "保存先とする、サーバーのダウンロード先ディレクトリの下のサブディレクトリです。その外は指定できません。省略時はダウンロード先ディレクトリそのものに保存します。"
+
+#, python-brace-format
+msgid ""
+"Web fetching tools built on crawl4ai. `fetch` returns page content "
+"directly: Markdown by default, or HTML, or a PNG screenshot. `download` "
+"saves files in any format (including PDF, MHTML, and the raw source) into"
+" a directory on the server and returns their paths. PDFs are transcribed "
+"to Markdown. Duplicate URLs are fetched once. At most {max_urls} URLs per"
+" call."
+msgstr ""
+"crawl4ai を使った Web 取得ツールです。`fetch` はページの内容を直接返します(既定は Markdown で、HTML や "
+"PNG のスクリーンショットも選べます)。`download` "
+"は任意の形式(PDF、MHTML、元のソースを含む)のファイルをサーバー上のディレクトリに保存し、そのパスを返します。PDF は Markdown"
+" に書き起こします。重複した URL は 1 回だけ取得します。1 回の呼び出しで指定できる URL は最大 {max_urls} 件です。"
+
+#, python-brace-format
+msgid ""
+"timeout_s={timeout_s:g} is more than {factor} times the server default "
+"({default:g} s); slow pages may hold the call open for a long time"
+msgstr ""
+"timeout_s={timeout_s:g} はサーバーの既定値({default:g} 秒)の {factor} "
+"倍を超えています。遅いページでは呼び出しが長時間終わらないことがあります"
+
+msgid "Fetch web pages"
+msgstr "Web ページを取得"
+
+msgid ""
+"Fetch one or more web pages and return their content directly: Markdown "
+"(default), HTML, or a PNG screenshot. PDFs are transcribed to Markdown "
+"and images are returned as images. When several URLs are given, each "
+"result starts with a '<!-- crawl4tools: url=... status=... -->' header. "
+"Failed URLs are reported as 'error: ...' lines; the call fails only if "
+"every URL fails. Use `download` to save other formats to files."
+msgstr ""
+"1 つ以上の Web ページを取得し、その内容を直接返します。形式は Markdown(既定)、HTML、PNG "
+"のスクリーンショットのいずれかです。PDF は Markdown に書き起こし、画像は画像として返します。複数の URL "
+"を指定すると、各結果の先頭に '<!-- crawl4tools: url=... status=... -->' ヘッダが付きます。失敗した "
+"URL は 'error: ...' 行で報告します。呼び出しが失敗になるのは、すべての URL "
+"が失敗したときだけです。ほかの形式をファイルに保存するには `download` を使ってください。"
+
+msgid "Download web pages to files"
+msgstr "Web ページをファイルにダウンロード"
+
+msgid ""
+"Fetch one or more URLs and save each result as a file in a directory on "
+"the server, returning the saved paths. Supports Markdown (default), HTML,"
+" PDF, PNG screenshot, MHTML, and the raw source. PDFs are transcribed to "
+"Markdown unless format is 'raw'; non-web content (images, archives, ...) "
+"is saved as served. Existing files are overwritten. The call fails only "
+"if no file was saved."
+msgstr ""
+"1 つ以上の URL "
+"を取得し、それぞれの結果をサーバー上のディレクトリにファイルとして保存して、保存したパスを返します。Markdown(既定)、HTML、PDF、PNG"
+" のスクリーンショット、MHTML、元のソースに対応します。PDF は format が 'raw' でなければ Markdown "
+"に書き起こします。Web "
+"ページ以外の内容(画像、アーカイブなど)は配信されたまま保存します。既存のファイルは上書きします。呼び出しが失敗になるのは、ファイルを 1 "
+"つも保存できなかったときだけです。"
+
+#, python-brace-format
+msgid "could not create {path}: {reason}"
+msgstr "{path} を作成できません: {reason}"
+
+#, python-brace-format
+msgid "{saved} saved, {failed} failed"
+msgstr "保存 {saved} 件、失敗 {failed} 件"
+
 msgid "at least one URL is required"
 msgstr "URL を 1 つ以上指定してください"
 

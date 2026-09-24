@@ -10,9 +10,19 @@ concurrent tool call.
 in one process (e.g. crawl4server's MCP and web loader apps) can share one
 fetcher and one semaphore: pass it to :func:`build_server` as ``state``
 and call :func:`fetch_all` with it directly.
+
+Every text the server shows its clients (the instructions, the tool titles
+and descriptions, the parameter descriptions, notes and errors) is in the
+language of ``settings.lang``; the ``note:`` / ``saved:`` / ``error:`` /
+``done:`` prefixes, the ``<!-- crawl4tools: ... -->`` header and the keys
+of the structured data stay in English. Logs are always in English.
 """
 
-from __future__ import annotations
+# No ``from __future__ import annotations`` in this module: the parameter
+# descriptions of the tools are built from the server's translator inside
+# build_server, and the MCP SDK evaluates string annotations against the
+# module globals only. Evaluated when the tool functions are defined, the
+# annotations can refer to those local values.
 
 import asyncio
 import logging
@@ -31,7 +41,7 @@ from crawl4tools.cli.output import payload_bytes
 from crawl4tools.engine.fetcher import Fetcher
 from crawl4tools.engine.models import FetchOptions, FetchOutcome, OutputFormat
 from crawl4tools.engine.naming import NameAllocator, filename_for
-from crawl4tools.i18n import ENGLISH
+from crawl4tools.i18n import Translator, render_exception
 from crawl4tools.server.results import (
     check_urls,
     download_lines,
@@ -59,32 +69,6 @@ DownloadFormat = Literal["markdown", "html", "pdf", "screenshot", "mhtml", "raw"
 #: A per-call timeout above this multiple of the server default earns a note.
 _LONG_TIMEOUT_FACTOR = 10
 
-_URLS_DESCRIPTION = (
-    "URLs to fetch (http or https), at most the server's per-call limit (see the "
-    "server instructions); duplicates are fetched once."
-)
-_FIT_DESCRIPTION = (
-    "Keep only the main content (drops menus, footers, and the like); falls back to "
-    "the full page when nothing is left. Markdown only."
-)
-_CITATIONS_DESCRIPTION = "Turn links into numbered references listed at the end. Markdown only."
-_IGNORE_LINKS_DESCRIPTION = "Drop links from the Markdown output. Markdown only."
-_IGNORE_IMAGES_DESCRIPTION = "Drop images from the Markdown output. Markdown only."
-_TIMEOUT_DESCRIPTION = "Page load timeout per URL in seconds; defaults to the server setting."
-_FETCH_FORMAT_DESCRIPTION = (
-    "Output format: 'markdown' (default), 'html' (rendered page HTML), or "
-    "'screenshot' (full-page PNG image)."
-)
-_DOWNLOAD_FORMAT_DESCRIPTION = (
-    "File format: 'markdown' (default), 'html', 'pdf' (page printed to PDF), "
-    "'screenshot' (PNG), 'mhtml' (single-file web archive), or 'raw' (the original "
-    "response bytes, e.g. a PDF or image as served)."
-)
-_DIRECTORY_DESCRIPTION = (
-    "Subdirectory of the server's download directory to save into; must stay inside "
-    "it. Defaults to the download directory itself."
-)
-
 
 @dataclass
 class ServerState:
@@ -95,17 +79,67 @@ class ServerState:
     settings: ServerSettings
 
 
-def _instructions(settings: ServerSettings) -> str:
-    """Return the server instructions shown to MCP clients."""
-    return (
+@dataclass(frozen=True)
+class _ParameterDescriptions:
+    """The descriptions of the tool parameters, in one language."""
+
+    urls: str
+    fit: str
+    citations: str
+    ignore_links: str
+    ignore_images: str
+    timeout_s: str
+    fetch_format: str
+    download_format: str
+    directory: str
+
+
+def _parameter_descriptions(t: Translator) -> _ParameterDescriptions:
+    """Return the descriptions of the tool parameters translated by *t*."""
+    return _ParameterDescriptions(
+        urls=t.gettext(
+            "URLs to fetch (http or https), at most the server's per-call limit (see the "
+            "server instructions); duplicates are fetched once."
+        ),
+        fit=t.gettext(
+            "Keep only the main content (drops menus, footers, and the like); falls back to "
+            "the full page when nothing is left. Markdown only."
+        ),
+        citations=t.gettext(
+            "Turn links into numbered references listed at the end. Markdown only."
+        ),
+        ignore_links=t.gettext("Drop links from the Markdown output. Markdown only."),
+        ignore_images=t.gettext("Drop images from the Markdown output. Markdown only."),
+        timeout_s=t.gettext(
+            "Page load timeout per URL in seconds; defaults to the server setting."
+        ),
+        fetch_format=t.gettext(
+            "Output format: 'markdown' (default), 'html' (rendered page HTML), or "
+            "'screenshot' (full-page PNG image)."
+        ),
+        download_format=t.gettext(
+            "File format: 'markdown' (default), 'html', 'pdf' (page printed to PDF), "
+            "'screenshot' (PNG), 'mhtml' (single-file web archive), or 'raw' (the original "
+            "response bytes, e.g. a PDF or image as served)."
+        ),
+        directory=t.gettext(
+            "Subdirectory of the server's download directory to save into; must stay inside "
+            "it. Defaults to the download directory itself."
+        ),
+    )
+
+
+def _instructions(settings: ServerSettings, t: Translator) -> str:
+    """Return the server instructions shown to MCP clients, translated by *t*."""
+    return t.gettext(
         "Web fetching tools built on crawl4ai. "
         "`fetch` returns page content directly: Markdown by default, or HTML, or a PNG "
         "screenshot. "
         "`download` saves files in any format (including PDF, MHTML, and the raw "
         "source) into a directory on the server and returns their paths. "
         "PDFs are transcribed to Markdown. Duplicate URLs are fetched once. "
-        f"At most {settings.max_urls} URLs per call."
-    )
+        "At most {max_urls} URLs per call."
+    ).format(max_urls=settings.max_urls)
 
 
 def _state(ctx: Context[ServerState, Any]) -> ServerState:
@@ -116,6 +150,7 @@ def _state(ctx: Context[ServerState, Any]) -> ServerState:
 def _prepare(
     settings: ServerSettings,
     urls: Sequence[str],
+    t: Translator,
     *,
     format: OutputFormat,
     fit: bool,
@@ -130,7 +165,8 @@ def _prepare(
         ``(unique, duplicates, options)`` for the call.
 
     Raises:
-        ToolError: if the URLs or the timeout are invalid.
+        ToolError: if the URLs or the timeout are invalid; the message is
+            translated by *t*.
     """
     try:
         unique, duplicates = check_urls(urls, settings.max_urls)
@@ -143,21 +179,25 @@ def _prepare(
             timeout_s=timeout_s,
         )
     except ValueError as exc:
-        raise ToolError(str(exc)) from exc
+        raise ToolError(render_exception(exc, t)) from exc
     return unique, duplicates, options
 
 
 def _note_lines(
-    settings: ServerSettings, duplicates: Sequence[str], timeout_s: float | None
+    settings: ServerSettings, duplicates: Sequence[str], timeout_s: float | None, t: Translator
 ) -> list[str]:
-    """Return the ``note: ...`` lines about duplicates and a long timeout."""
-    lines = [f"note: duplicate URL ignored: {url}" for url in duplicates]
+    """Return the ``note: ...`` lines about duplicates and a long timeout.
+
+    The messages are translated by *t*; the ``note:`` prefix is not.
+    """
+    duplicate = t.gettext("duplicate URL ignored: {url}")
+    lines = [f"note: {duplicate.format(url=url)}" for url in duplicates]
     if timeout_s is not None and timeout_s > _LONG_TIMEOUT_FACTOR * settings.timeout_s:
-        lines.append(
-            f"note: timeout_s={timeout_s:g} is more than {_LONG_TIMEOUT_FACTOR} times the "
-            f"server default ({settings.timeout_s:g} s); slow pages may hold the call open "
-            "for a long time"
-        )
+        message = t.gettext(
+            "timeout_s={timeout_s:g} is more than {factor} times the server default "
+            "({default:g} s); slow pages may hold the call open for a long time"
+        ).format(timeout_s=timeout_s, factor=_LONG_TIMEOUT_FACTOR, default=settings.timeout_s)
+        lines.append(f"note: {message}")
     return lines
 
 
@@ -236,7 +276,12 @@ def build_server(
     With *state*, the server uses that shared state as is and neither
     creates nor closes a fetcher; *fetcher_factory* is then ignored and the
     caller owns the state's lifetime.
+
+    The texts sent to the clients are translated by ``settings.translator``
+    once, when the server is built.
     """
+    t = settings.translator
+    descriptions = _parameter_descriptions(t)
 
     @asynccontextmanager
     async def lifespan(_server: MCPServer[ServerState]) -> AsyncIterator[ServerState]:
@@ -248,15 +293,15 @@ def build_server(
 
     server: MCPServer[ServerState] = MCPServer(
         name="crawl4tools",
-        instructions=_instructions(settings),
+        instructions=_instructions(settings, t),
         version=__version__,
         lifespan=lifespan,
     )
 
     @server.tool(
         name="fetch",
-        title="Fetch web pages",
-        description=(
+        title=t.gettext("Fetch web pages"),
+        description=t.gettext(
             "Fetch one or more web pages and return their content directly: Markdown "
             "(default), HTML, or a PNG screenshot. PDFs are transcribed to Markdown and "
             "images are returned as images. When several URLs are given, each result "
@@ -268,17 +313,18 @@ def build_server(
     )
     async def fetch(
         ctx: Context[ServerState, Any],
-        urls: Annotated[list[str], Field(description=_URLS_DESCRIPTION)],
-        format: Annotated[FetchFormat, Field(description=_FETCH_FORMAT_DESCRIPTION)] = "markdown",
-        fit: Annotated[bool, Field(description=_FIT_DESCRIPTION)] = False,
-        citations: Annotated[bool, Field(description=_CITATIONS_DESCRIPTION)] = False,
-        ignore_links: Annotated[bool, Field(description=_IGNORE_LINKS_DESCRIPTION)] = False,
-        ignore_images: Annotated[bool, Field(description=_IGNORE_IMAGES_DESCRIPTION)] = False,
-        timeout_s: Annotated[float | None, Field(description=_TIMEOUT_DESCRIPTION)] = None,
+        urls: Annotated[list[str], Field(description=descriptions.urls)],
+        format: Annotated[FetchFormat, Field(description=descriptions.fetch_format)] = "markdown",
+        fit: Annotated[bool, Field(description=descriptions.fit)] = False,
+        citations: Annotated[bool, Field(description=descriptions.citations)] = False,
+        ignore_links: Annotated[bool, Field(description=descriptions.ignore_links)] = False,
+        ignore_images: Annotated[bool, Field(description=descriptions.ignore_images)] = False,
+        timeout_s: Annotated[float | None, Field(description=descriptions.timeout_s)] = None,
     ) -> CallToolResult:
         unique, duplicates, options = _prepare(
             settings,
             urls,
+            t,
             format=OutputFormat(format),
             fit=fit,
             citations=citations,
@@ -286,7 +332,7 @@ def build_server(
             ignore_images=ignore_images,
             timeout_s=timeout_s,
         )
-        notes = _note_lines(settings, duplicates, timeout_s)
+        notes = _note_lines(settings, duplicates, timeout_s, t)
         outcomes = await _fetch_all(_state(ctx), ctx, unique, options)
 
         content: list[ContentBlock] = []
@@ -294,11 +340,11 @@ def build_server(
             content.append(TextContent(type="text", text="\n".join(notes)))
         multiple = len(unique) > 1
         for url, outcome in zip(unique, outcomes, strict=True):
-            content.extend(page_blocks(outcome, url, ENGLISH, multiple=multiple))
+            content.extend(page_blocks(outcome, url, t, multiple=multiple))
         return CallToolResult(
             content=content,
             structured_content={
-                "pages": [page_meta(o, u, ENGLISH) for u, o in zip(unique, outcomes, strict=True)],
+                "pages": [page_meta(o, u, t) for u, o in zip(unique, outcomes, strict=True)],
                 "duplicates": duplicates,
             },
             is_error=not any(outcome.ok for outcome in outcomes),
@@ -306,8 +352,8 @@ def build_server(
 
     @server.tool(
         name="download",
-        title="Download web pages to files",
-        description=(
+        title=t.gettext("Download web pages to files"),
+        description=t.gettext(
             "Fetch one or more URLs and save each result as a file in a directory on "
             "the server, returning the saved paths. Supports Markdown (default), HTML, "
             "PDF, PNG screenshot, MHTML, and the raw source. PDFs are transcribed to "
@@ -324,20 +370,21 @@ def build_server(
     )
     async def download(
         ctx: Context[ServerState, Any],
-        urls: Annotated[list[str], Field(description=_URLS_DESCRIPTION)],
+        urls: Annotated[list[str], Field(description=descriptions.urls)],
         format: Annotated[
-            DownloadFormat, Field(description=_DOWNLOAD_FORMAT_DESCRIPTION)
+            DownloadFormat, Field(description=descriptions.download_format)
         ] = "markdown",
-        directory: Annotated[str | None, Field(description=_DIRECTORY_DESCRIPTION)] = None,
-        fit: Annotated[bool, Field(description=_FIT_DESCRIPTION)] = False,
-        citations: Annotated[bool, Field(description=_CITATIONS_DESCRIPTION)] = False,
-        ignore_links: Annotated[bool, Field(description=_IGNORE_LINKS_DESCRIPTION)] = False,
-        ignore_images: Annotated[bool, Field(description=_IGNORE_IMAGES_DESCRIPTION)] = False,
-        timeout_s: Annotated[float | None, Field(description=_TIMEOUT_DESCRIPTION)] = None,
+        directory: Annotated[str | None, Field(description=descriptions.directory)] = None,
+        fit: Annotated[bool, Field(description=descriptions.fit)] = False,
+        citations: Annotated[bool, Field(description=descriptions.citations)] = False,
+        ignore_links: Annotated[bool, Field(description=descriptions.ignore_links)] = False,
+        ignore_images: Annotated[bool, Field(description=descriptions.ignore_images)] = False,
+        timeout_s: Annotated[float | None, Field(description=descriptions.timeout_s)] = None,
     ) -> CallToolResult:
         unique, duplicates, options = _prepare(
             settings,
             urls,
+            t,
             format=OutputFormat(format),
             fit=fit,
             citations=citations,
@@ -348,35 +395,43 @@ def build_server(
         try:
             target_dir = resolve_directory(settings.download_root, directory)
         except ValueError as exc:
-            raise ToolError(str(exc)) from exc
-        notes = _note_lines(settings, duplicates, timeout_s)
+            raise ToolError(render_exception(exc, t)) from exc
+        notes = _note_lines(settings, duplicates, timeout_s, t)
         outcomes = await _fetch_all(_state(ctx), ctx, unique, options)
 
         try:
             target_dir.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
-            raise ToolError(f"could not create {target_dir}: {exc.strerror}") from exc
+            message = t.gettext("could not create {path}: {reason}").format(
+                path=target_dir, reason=exc.strerror
+            )
+            raise ToolError(message) from exc
 
         allocator = NameAllocator(target_dir)
         records: list[dict[str, object]] = []
         for url, outcome in zip(unique, outcomes, strict=True):
             if not outcome.ok:
-                records.append(download_record(outcome, url, None, ENGLISH))
+                records.append(download_record(outcome, url, None, t))
                 continue
             path = allocator.allocate(filename_for(url, outcome.suggested_extension))
             try:
                 path.write_bytes(payload_bytes(outcome))
             except OSError as exc:
-                error = f"could not write {path}: {exc.strerror}"
-                records.append(download_record(outcome, url, None, ENGLISH, error=error))
+                error = t.gettext("could not write {path}: {reason}").format(
+                    path=path, reason=exc.strerror
+                )
+                records.append(download_record(outcome, url, None, t, error=error))
             else:
-                records.append(download_record(outcome, url, path, ENGLISH))
+                records.append(download_record(outcome, url, path, t))
 
         saved = sum(1 for record in records if record["ok"])
         lines = list(notes)
         for record in records:
-            lines.extend(download_lines(record, ENGLISH))
-        lines.append(f"done: {saved} saved, {len(records) - saved} failed")
+            lines.extend(download_lines(record, t))
+        summary = t.gettext("{saved} saved, {failed} failed").format(
+            saved=saved, failed=len(records) - saved
+        )
+        lines.append(f"done: {summary}")
         return CallToolResult(
             content=[TextContent(type="text", text="\n".join(lines))],
             structured_content={

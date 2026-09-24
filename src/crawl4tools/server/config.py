@@ -31,6 +31,7 @@ CONFIG_KEYS: frozenset[str] = frozenset(
         "max_urls",
         "download_dir",
         "verbose",
+        "lang",
     }
 )
 

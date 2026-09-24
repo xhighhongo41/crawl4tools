@@ -24,6 +24,7 @@ def test_config_keys_contents() -> None:
             "max_urls",
             "download_dir",
             "verbose",
+            "lang",
         }
     )
 
