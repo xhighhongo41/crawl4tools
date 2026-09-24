@@ -106,3 +106,23 @@ def test_load_config_values_are_untouched(tmp_path: Path) -> None:
     assert config["timeout"] == 12.5
     assert isinstance(config["concurrency"], int)
     assert config["fallback"] is False
+
+
+CUSTOM_KEYS = frozenset({"loader_port", "mcp_port", "timeout"})
+
+
+def test_load_config_custom_allowed_keys_accepts(tmp_path: Path) -> None:
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text("loader_port: 8080\nmcp_port: 8765\n", encoding="utf-8")
+    assert load_config(config_file, CUSTOM_KEYS) == {"loader_port": 8080, "mcp_port": 8765}
+
+
+def test_load_config_custom_allowed_keys_rejects(tmp_path: Path) -> None:
+    config_file = tmp_path / "config.yaml"
+    # "transport" is a crawl4mcp key but not part of the custom set.
+    config_file.write_text("transport: stdio\nloader_port: 8080\n", encoding="utf-8")
+    with pytest.raises(ConfigError) as info:
+        load_config(config_file, allowed_keys=CUSTOM_KEYS)
+    message = str(info.value)
+    assert "unknown config key(s): transport" in message
+    assert "(allowed keys: loader_port, mcp_port, timeout)" in message

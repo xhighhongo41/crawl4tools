@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from crawl4tools.server.mcp_server import build_server
+from crawl4tools.server.mcp_server import build_server, fetch_all, open_state
 from crawl4tools.server.settings import ServerSettings
 
-__all__ = ["ServerSettings", "build_server"]
+__all__ = ["ServerSettings", "build_server", "fetch_all", "open_state"]

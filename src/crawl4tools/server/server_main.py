@@ -11,14 +11,14 @@ import click
 
 from crawl4tools import __version__
 from crawl4tools.cli.main import CRAWL4AI_ATTRIBUTION
-from crawl4tools.server.mcp_main import _package_version
+from crawl4tools.server.cli_options import package_version
 
 
 def version_text() -> str:
     """Return the text printed by ``crawl4server --version``."""
     return (
-        f"crawl4server {__version__} (crawl4ai {_package_version('crawl4ai')}, "
-        f"mcp {_package_version('mcp')}, starlette {_package_version('starlette')})\n"
+        f"crawl4server {__version__} (crawl4ai {package_version('crawl4ai')}, "
+        f"mcp {package_version('mcp')}, starlette {package_version('starlette')})\n"
         f"{CRAWL4AI_ATTRIBUTION}"
     )
 
