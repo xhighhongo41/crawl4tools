@@ -60,7 +60,8 @@ target-version = "py311"
 select = ["E", "F", "I", "UP", "B", "W"]
 
 [tool.mypy]
-python_version = "3.11"
+# numpy stubs (reached through pytest) use 3.12-only syntax; ruff keeps py311 syntax checks.
+python_version = "3.12"
 strict = true
 warn_unused_ignores = true
 mypy_path = "src"
