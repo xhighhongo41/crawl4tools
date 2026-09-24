@@ -392,6 +392,7 @@ class Fetcher:
             content_kind=ContentKind.HTML,
             content_type=content_type,
             suggested_extension=extension_for(fmt),
+            title=self._page_title(result),
         )
         html: str = getattr(result, "html", None) or ""
         if fmt is OutputFormat.MARKDOWN:
@@ -419,6 +420,14 @@ class Fetcher:
             outcome.data = html.encode("utf-8")
             outcome.suggested_extension = ".html"
         return outcome
+
+    def _page_title(self, result: Any) -> str | None:
+        """Extract the page ``<title>`` from a crawl4ai result, if present."""
+        metadata = getattr(result, "metadata", None) or {}
+        title = metadata.get("title")
+        if isinstance(title, str) and title.strip():
+            return title.strip()
+        return None
 
     def _markdown_text(self, markdown: Any, outcome: FetchOutcome, options: FetchOptions) -> str:
         """Pick the full or content-filtered Markdown, with citations if requested."""

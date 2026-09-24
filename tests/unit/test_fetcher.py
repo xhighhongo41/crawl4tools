@@ -125,6 +125,35 @@ async def test_missing_response_headers() -> None:
     assert outcome.content_type is None
 
 
+async def test_title_from_metadata() -> None:
+    outcome, _, _ = await fetch_one()
+    assert outcome.title == "Example Domain"
+
+
+async def test_title_is_stripped() -> None:
+    crawler = FakeCrawler(make_result(metadata={"title": "  Hello World  "}))
+    outcome, _, _ = await fetch_one(crawler=crawler)
+    assert outcome.title == "Hello World"
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [{}, {"title": None}, {"title": 123}, {"title": "   "}],
+    ids=["no_title_key", "none_title", "non_str_title", "whitespace_only_title"],
+)
+async def test_title_missing_or_invalid_is_none(metadata: dict[str, Any]) -> None:
+    crawler = FakeCrawler(make_result(metadata=metadata))
+    outcome, _, _ = await fetch_one(crawler=crawler)
+    assert outcome.title is None
+
+
+async def test_title_is_none_when_metadata_attribute_is_absent() -> None:
+    result = make_result()
+    del result.metadata
+    outcome, _, _ = await fetch_one(crawler=FakeCrawler(result))
+    assert outcome.title is None
+
+
 @pytest.mark.parametrize(
     ("fmt", "overrides", "text", "data", "ext"),
     [
@@ -359,6 +388,7 @@ async def test_pdf_to_markdown_without_browser(sample_pdf: bytes) -> None:
     assert outcome.content_type == "application/pdf"
     assert outcome.status_code == 200
     assert outcome.notes == []
+    assert outcome.title is None
     assert crawler.factory_calls == 0
     assert not crawler.started
     assert crawler.exited == 0
