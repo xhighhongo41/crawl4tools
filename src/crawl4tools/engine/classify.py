@@ -3,7 +3,8 @@
 crawl4ai/Playwright surface most failures as plain error strings rather
 than distinct exception types, so classification is pattern-based. Patterns
 are kept in module-level tuples, grouped by kind, so new patterns can be
-added without touching the matching logic.
+added without touching the matching logic. The TLS patterns live in
+:mod:`crawl4tools.engine.interception`, which the HTTP probe shares.
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ from __future__ import annotations
 import re
 
 from crawl4tools.engine.errors import (
+    BlockedFetchError,
     BrowserNotInstalledError,
     ConnectionRefusedFetchError,
     FetchError,
@@ -19,7 +21,9 @@ from crawl4tools.engine.errors import (
     NameResolutionError,
     NonHtmlContentError,
     ProxyFetchError,
+    TlsFetchError,
 )
+from crawl4tools.engine.interception import is_tls_message
 from crawl4tools.engine.models import FailureKind
 
 # Checked first: a missing browser install should be surfaced distinctly,
@@ -77,6 +81,11 @@ def classify_error_message(message: str | None) -> FailureKind:
         return FailureKind.BROWSER_NOT_INSTALLED
     if _matches_any(lowered, _PROXY_PATTERNS):
         return FailureKind.PROXY
+    # After PROXY, so a proxy's own certificate error (ERR_PROXY_CERTIFICATE_INVALID)
+    # stays a proxy failure; before TIMEOUT, so a TLS error that also mentions a
+    # timeout is reported as the TLS error it is.
+    if is_tls_message(lowered):
+        return FailureKind.TLS
     if _matches_any(lowered, _NAME_RESOLUTION_PATTERNS):
         return FailureKind.NAME_RESOLUTION
     if _matches_any(lowered, _CONNECTION_REFUSED_PATTERNS):
@@ -100,13 +109,17 @@ def build_error(
     """Build the concrete :class:`FetchError` subclass for *kind*.
 
     Raises:
-        ValueError: if ``kind`` is ``HTTP_STATUS`` and ``status_code`` is
-            not provided.
+        ValueError: if ``kind`` is ``HTTP_STATUS`` or ``BLOCKED`` and
+            ``status_code`` is not provided.
     """
     if kind is FailureKind.HTTP_STATUS:
         if status_code is None:
             raise ValueError("status_code is required to build an HTTP_STATUS error")
         return HttpStatusError(url, status_code)
+    if kind is FailureKind.BLOCKED:
+        if status_code is None:
+            raise ValueError("status_code is required to build a BLOCKED error")
+        return BlockedFetchError(url, status_code)
     if kind is FailureKind.NAME_RESOLUTION:
         return NameResolutionError(url, detail)
     if kind is FailureKind.CONNECTION_REFUSED:
@@ -119,6 +132,8 @@ def build_error(
             # constructing a ProxyFetchError with nothing to redact/report.
             return FetchError(url, detail)
         return ProxyFetchError(url, proxy, detail)
+    if kind is FailureKind.TLS:
+        return TlsFetchError(url, detail)
     if kind is FailureKind.BROWSER_NOT_INSTALLED:
         return BrowserNotInstalledError(url, detail)
     if kind is FailureKind.NON_HTML:

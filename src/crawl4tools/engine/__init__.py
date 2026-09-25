@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from crawl4tools.engine.classify import build_error, classify_error_message, error_for_status
 from crawl4tools.engine.errors import (
+    BlockedFetchError,
     BrowserNotInstalledError,
     ConnectionRefusedFetchError,
     FetchError,
@@ -12,6 +13,7 @@ from crawl4tools.engine.errors import (
     NameResolutionError,
     NonHtmlContentError,
     ProxyFetchError,
+    TlsFetchError,
 )
 from crawl4tools.engine.fetcher import (
     CrawlerFactory,
@@ -53,6 +55,7 @@ __all__ = [
     "FALLBACK_KINDS",
     "FALLBACK_STATUS_CODES",
     "SUPPORTED_SCHEMES",
+    "BlockedFetchError",
     "BrowserNotInstalledError",
     "ConnectionRefusedFetchError",
     "ContentKind",
@@ -76,6 +79,7 @@ __all__ = [
     "ProbeResult",
     "ProxyFetchError",
     "ProxyUrlError",
+    "TlsFetchError",
     "build_error",
     "build_run_config",
     "classify_error_message",

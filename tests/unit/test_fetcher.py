@@ -8,14 +8,19 @@ from typing import Any
 
 import httpx
 import pytest
-from conftest import FakeCrawler, FakeHttp, make_result
+from conftest import FakeCrawler, FakeHttp, HttpHandler, make_result
 
 from crawl4tools.engine import fetcher as fetcher_module
 from crawl4tools.engine.errors import (
+    BlockedFetchError,
     BrowserNotInstalledError,
+    ConnectionRefusedFetchError,
+    FetchError,
+    FetchTimeoutError,
     HttpStatusError,
     NonHtmlContentError,
     ProxyFetchError,
+    TlsFetchError,
 )
 from crawl4tools.engine.fetcher import Fetcher, build_run_config
 from crawl4tools.engine.models import (
@@ -892,3 +897,393 @@ async def test_invalid_per_call_proxy_raises_before_fetching() -> None:
     assert crawler.factory_calls == 0
     assert crawler.calls == []
     assert http.client_calls == []
+
+
+# --- proxy interference (TLS interception) -------------------------------------------
+
+PROXY_NOTE = "proxy failed ({error}); retried with a direct connection"
+REDACTED_PROXY = "http://***@proxy.example:8080"
+SQUID_TITLE = "ERROR: The requested URL could not be retrieved"
+TLS_FAILURE = (
+    "Unexpected error in _crawl_web at line 700 in _crawl_web (async_webcrawler.py):\n"
+    "Error: Failed on navigating ACS-GOTO:\n"
+    f"Page.goto: net::ERR_SSL_PROTOCOL_ERROR at {URL}\n"
+)
+CHALLENGE_PAGE = "<html><head><title>Just a moment...</title></head><body></body></html>"
+
+
+def squid_page(code: str) -> str:
+    """Return an error page shaped like Squid's stock templates."""
+    return (
+        f"<html><head><title>{SQUID_TITLE}</title></head>"
+        f"<body id={code}><h1>ERROR</h1></body></html>"
+    )
+
+
+def anti_bot(status_code: int) -> str:
+    """Return crawl4ai's error text for a page its own anti-bot check rejected."""
+    return f"Blocked by anti-bot protection: HTTP {status_code} with HTML content (180 bytes)"
+
+
+def squid_by_header(*, success: bool) -> Any:
+    # crawl4ai marks a 503 HTML page as failed but keeps its headers and HTML (C33).
+    return make_result(
+        success=success,
+        error_message=None if success else anti_bot(503),
+        status_code=503,
+        html=squid_page("ERR_SECURE_CONNECT_FAIL"),
+        response_headers={
+            "content-type": "text/html",
+            "x-squid-error": "ERR_SECURE_CONNECT_FAIL 0",
+        },
+    )
+
+
+def squid_by_title() -> Any:
+    return make_result(
+        status_code=503,
+        html=squid_page("ERR_SECURE_CONNECT_FAIL"),
+        response_headers={"content-type": "text/html"},
+    )
+
+
+def challenge(*, success: bool) -> Any:
+    return make_result(
+        success=success,
+        error_message=None if success else anti_bot(403),
+        status_code=403,
+        html=CHALLENGE_PAGE,
+        response_headers={"content-type": "text/html", "cf-mitigated": "challenge"},
+    )
+
+
+TLS_ERROR = f"TLS error: net::ERR_SSL_PROTOCOL_ERROR: {URL}"
+PROXY_ERROR = f"proxy connection failed ({REDACTED_PROXY}): {URL}"
+BLOCKED_ERROR = f"blocked by a bot challenge (HTTP 403): {URL}"
+
+# (result through the proxy, error it is reported as, that error in English)
+INTERCEPTED = [
+    pytest.param(fail(TLS_FAILURE), TlsFetchError, TLS_ERROR, id="s1-tls"),
+    pytest.param(squid_by_header(success=False), ProxyFetchError, PROXY_ERROR, id="s2-header"),
+    pytest.param(
+        squid_by_header(success=True), ProxyFetchError, PROXY_ERROR, id="s2-header-success"
+    ),
+    pytest.param(squid_by_title(), ProxyFetchError, PROXY_ERROR, id="s2-title"),
+    pytest.param(challenge(success=True), BlockedFetchError, BLOCKED_ERROR, id="s3-challenge"),
+    pytest.param(
+        challenge(success=False), BlockedFetchError, BLOCKED_ERROR, id="s3-challenge-anti-bot"
+    ),
+]
+
+
+@pytest.mark.parametrize(("intercepted", "error_type", "english"), INTERCEPTED)
+async def test_interception_through_proxy_falls_back_to_direct(
+    intercepted: Any, error_type: type[FetchError], english: str
+) -> None:
+    crawler = FakeCrawler(proxy_aware(intercepted, make_result()))
+    outcome, crawler, http = await fetch_one(FetchOptions(proxy=PROXY), crawler=crawler)
+    assert outcome.ok, outcome.error
+    assert outcome.text == "# Hello"
+    assert len(crawler.calls) == 2
+    assert crawler.calls[0][1].proxy_config is not None
+    assert crawler.calls[1][1].proxy_config is None
+    assert http.proxies == [PROXY, None]
+    [note] = outcome.notes
+    assert note.template == PROXY_NOTE
+    assert type(note.params["error"]) is error_type
+    assert str(note) == f"proxy failed ({english}); retried with a direct connection"
+    assert_no_secret(outcome)
+
+
+@pytest.mark.parametrize(("intercepted", "error_type", "english"), INTERCEPTED)
+async def test_interception_with_fallback_disabled_is_reported(
+    intercepted: Any, error_type: type[FetchError], english: str
+) -> None:
+    crawler = FakeCrawler(intercepted)
+    outcome, crawler, _ = await fetch_one(
+        FetchOptions(proxy=PROXY, fallback=False), crawler=crawler
+    )
+    assert not outcome.ok
+    assert type(outcome.error) is error_type
+    assert str(outcome.error) == english
+    assert len(crawler.calls) == 1
+    assert outcome.notes == []
+    assert_no_secret(outcome)
+
+
+@pytest.mark.parametrize(("intercepted", "error_type", "english"), INTERCEPTED)
+async def test_interception_on_both_attempts_retries_only_once(
+    intercepted: Any, error_type: type[FetchError], english: str
+) -> None:
+    outcome, crawler, _ = await fetch_one(
+        FetchOptions(proxy=PROXY), crawler=FakeCrawler(intercepted)
+    )
+    assert not outcome.ok
+    assert len(crawler.calls) == 2
+    [note] = outcome.notes
+    assert type(note.params["error"]) is error_type
+
+
+@pytest.mark.parametrize(
+    ("result", "error_type", "english"),
+    [
+        pytest.param(fail(TLS_FAILURE), TlsFetchError, TLS_ERROR, id="s1-tls"),
+        # Without a proxy there is none to name: the generic error, still a failure.
+        pytest.param(
+            squid_by_header(success=False),
+            FetchError,
+            f"fetch failed: ERR_SECURE_CONNECT_FAIL 0: {URL}",
+            id="s2-header",
+        ),
+        pytest.param(
+            squid_by_title(),
+            FetchError,
+            f"fetch failed: ERR_SECURE_CONNECT_FAIL: {URL}",
+            id="s2-title",
+        ),
+        # Without a proxy a challenge is the site's own answer: the usual status failure.
+        pytest.param(
+            challenge(success=True), HttpStatusError, f"HTTP 403 Forbidden: {URL}", id="s3"
+        ),
+        pytest.param(
+            challenge(success=False),
+            FetchError,
+            f"fetch failed: {anti_bot(403)}: {URL}",
+            id="s3-anti-bot",
+        ),
+    ],
+)
+async def test_interception_without_proxy_is_not_retried(
+    result: Any, error_type: type[FetchError], english: str
+) -> None:
+    outcome, crawler, http = await fetch_one(crawler=FakeCrawler(result))
+    assert not outcome.ok
+    assert type(outcome.error) is error_type
+    assert str(outcome.error) == english
+    assert len(crawler.calls) == 1
+    assert http.proxies == [None]
+    assert outcome.notes == []
+
+
+POLICY_DENIALS = [
+    "ERR_ACCESS_DENIED",
+    "ERR_CACHE_ACCESS_DENIED",
+    "ERR_FORWARDING_DENIED",
+    "ERR_CACHE_MGR_ACCESS_DENIED",
+]
+
+
+@pytest.mark.parametrize("code", POLICY_DENIALS)
+async def test_squid_policy_denial_is_not_bypassed(code: str) -> None:
+    denied = make_result(
+        status_code=403,
+        html=squid_page(code),
+        response_headers={"content-type": "text/html", "X-Squid-Error": f"{code} 0"},
+    )
+    crawler = FakeCrawler(proxy_aware(denied, make_result()))
+    outcome, crawler, _ = await fetch_one(FetchOptions(proxy=PROXY), crawler=crawler)
+    assert not outcome.ok
+    assert isinstance(outcome.error, HttpStatusError)
+    assert outcome.status_code == 403
+    assert len(crawler.calls) == 1
+    assert outcome.notes == []
+
+
+async def test_squid_custom_denial_page_is_not_bypassed() -> None:
+    # An administrator's own deny_info page: unknown code, but a 403 from the proxy.
+    denied = make_result(
+        status_code=403,
+        html=squid_page("ERR_MY_BLOCKLIST"),
+        response_headers={"content-type": "text/html", "X-Squid-Error": "ERR_MY_BLOCKLIST 0"},
+    )
+    crawler = FakeCrawler(proxy_aware(denied, make_result()))
+    outcome, crawler, _ = await fetch_one(FetchOptions(proxy=PROXY), crawler=crawler)
+    assert not outcome.ok
+    assert isinstance(outcome.error, HttpStatusError)
+    assert outcome.status_code == 403
+    assert len(crawler.calls) == 1
+    assert outcome.notes == []
+
+
+async def test_squid_policy_denial_rejected_by_crawl4ai_is_not_bypassed() -> None:
+    denied = make_result(
+        success=False,
+        error_message=anti_bot(403),
+        status_code=403,
+        html=squid_page("ERR_ACCESS_DENIED"),
+        response_headers={"content-type": "text/html", "x-squid-error": "ERR_ACCESS_DENIED 0"},
+    )
+    crawler = FakeCrawler(proxy_aware(denied, make_result()))
+    outcome, crawler, _ = await fetch_one(FetchOptions(proxy=PROXY), crawler=crawler)
+    assert not outcome.ok
+    assert outcome.error is not None
+    assert outcome.error.kind is FailureKind.OTHER
+    assert len(crawler.calls) == 1
+    assert outcome.notes == []
+
+
+async def test_squid_title_on_a_successful_page_is_kept() -> None:
+    page = make_result(status_code=200, html=squid_page("ERR_SECURE_CONNECT_FAIL"))
+    outcome, crawler, _ = await fetch_one(FetchOptions(proxy=PROXY), crawler=FakeCrawler(page))
+    assert outcome.ok
+    assert len(crawler.calls) == 1
+    assert outcome.notes == []
+
+
+# --- proxy interference on the HTTP download (C34) ---------------------------------------
+
+FILE_URL = "https://example.com/file.zip"
+TLS_TEXT = (
+    "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: "
+    "self-signed certificate in certificate chain (_ssl.c:1000)"
+)
+
+
+class ProxyAwareHttp(FakeHttp):
+    """A ``FakeHttp`` that answers requests through a proxy with a separate handler."""
+
+    def __init__(self, with_proxy: HttpHandler, without_proxy: HttpHandler) -> None:
+        super().__init__(without_proxy)
+        self.with_proxy = with_proxy
+
+    def __call__(self, proxy: str | None, timeout_s: float) -> httpx.AsyncClient:
+        self.client_calls.append((proxy, timeout_s))
+        handler = self.with_proxy if proxy is not None else self.handler
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            self.requests.append(request)
+            return handler(request)
+
+        return httpx.AsyncClient(transport=httpx.MockTransport(handle), follow_redirects=True)
+
+
+def raising(exc: Exception) -> HttpHandler:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise exc
+
+    return handler
+
+
+def zip_file(request: httpx.Request) -> httpx.Response:
+    return response("application/zip", b"PK\x03\x04")
+
+
+def squid_response(request: httpx.Request) -> httpx.Response:
+    return httpx.Response(
+        503,
+        headers={"content-type": "text/html", "X-Squid-Error": "ERR_SECURE_CONNECT_FAIL 0"},
+        text=squid_page("ERR_SECURE_CONNECT_FAIL"),
+    )
+
+
+def challenge_response(request: httpx.Request) -> httpx.Response:
+    return httpx.Response(
+        403, headers={"content-type": "text/html", "CF-Mitigated": "challenge"}, text="x"
+    )
+
+
+# (what the HTTP client meets through the proxy, error the download is reported as)
+DOWNLOAD_FAILURES = [
+    pytest.param(raising(httpx.ConnectError(TLS_TEXT)), TlsFetchError, id="tls"),
+    pytest.param(raising(httpx.ProxyError("proxy said no")), ProxyFetchError, id="proxy"),
+    pytest.param(raising(httpx.ConnectTimeout("timed out")), FetchTimeoutError, id="timeout"),
+    pytest.param(
+        raising(httpx.ConnectError("[Errno 61] Connection refused")),
+        ConnectionRefusedFetchError,
+        id="connection-refused",
+    ),
+    pytest.param(squid_response, ProxyFetchError, id="squid-error-page"),
+    pytest.param(challenge_response, BlockedFetchError, id="bot-challenge"),
+]
+
+
+@pytest.mark.parametrize(("through_proxy", "error_type"), DOWNLOAD_FAILURES)
+async def test_download_failure_through_proxy_falls_back_to_direct(
+    through_proxy: HttpHandler, error_type: type[FetchError]
+) -> None:
+    http = ProxyAwareHttp(through_proxy, zip_file)
+    crawler = FakeCrawler(proxy_aware(fail("net::ERR_ABORTED at " + FILE_URL), make_result()))
+    outcome, crawler, _ = await fetch_one(
+        FetchOptions(proxy=PROXY), crawler=crawler, http=http, url=FILE_URL
+    )
+    assert outcome.ok, outcome.error
+    assert outcome.content_kind is ContentKind.BINARY
+    assert outcome.data == b"PK\x03\x04"
+    # Probe and download through the proxy, then the direct probe finds the file.
+    assert http.proxies == [PROXY, PROXY, None]
+    assert len(crawler.calls) == 1
+    proxy_note, resource_note = outcome.notes
+    assert proxy_note.template == PROXY_NOTE
+    assert type(proxy_note.params["error"]) is error_type
+    assert str(resource_note) == "not a web page (application/zip); saved the original file"
+    assert_no_secret(outcome)
+
+
+@pytest.mark.parametrize(("through_proxy", "error_type"), DOWNLOAD_FAILURES)
+async def test_download_failure_with_fallback_disabled_keeps_its_kind(
+    through_proxy: HttpHandler, error_type: type[FetchError]
+) -> None:
+    http = ProxyAwareHttp(through_proxy, zip_file)
+    crawler = FakeCrawler(fail("net::ERR_ABORTED at " + FILE_URL))
+    outcome, crawler, _ = await fetch_one(
+        FetchOptions(proxy=PROXY, fallback=False), crawler=crawler, http=http, url=FILE_URL
+    )
+    assert not outcome.ok
+    assert type(outcome.error) is error_type
+    assert len(crawler.calls) == 1
+    assert outcome.notes == []
+    assert_no_secret(outcome)
+
+
+async def test_download_tls_failure_of_a_non_html_page_keeps_its_kind() -> None:
+    # The browser got a non-HTML response without HTML; the HTTP download then fails.
+    http = ProxyAwareHttp(raising(httpx.ConnectError(TLS_TEXT)), zip_file)
+    crawler = FakeCrawler(
+        make_result(html="", response_headers={"content-type": "application/zip"})
+    )
+    outcome, _, _ = await fetch_one(
+        FetchOptions(proxy=PROXY, fallback=False), crawler=crawler, http=http
+    )
+    assert not outcome.ok
+    assert isinstance(outcome.error, TlsFetchError)
+    assert str(outcome.error) == f"TLS error: {TLS_TEXT}: {URL}"
+
+
+async def test_download_other_failure_is_still_non_html_content() -> None:
+    http = ProxyAwareHttp(raising(httpx.RemoteProtocolError("bad")), zip_file)
+    crawler = FakeCrawler(fail("net::ERR_ABORTED at " + FILE_URL))
+    outcome, crawler, _ = await fetch_one(
+        FetchOptions(proxy=PROXY), crawler=crawler, http=http, url=FILE_URL
+    )
+    assert not outcome.ok
+    assert isinstance(outcome.error, NonHtmlContentError)
+    assert len(crawler.calls) == 1
+    assert outcome.notes == []
+
+
+async def test_download_tls_failure_without_proxy_is_not_retried() -> None:
+    http = FakeHttp(raising(httpx.ConnectError(TLS_TEXT)))
+    crawler = FakeCrawler(fail("net::ERR_ABORTED at " + FILE_URL))
+    outcome, crawler, http = await fetch_one(crawler=crawler, http=http, url=FILE_URL)
+    assert not outcome.ok
+    assert isinstance(outcome.error, TlsFetchError)
+    assert http.proxies == [None, None]
+    assert outcome.notes == []
+
+
+async def test_download_squid_error_page_without_proxy_is_a_generic_failure() -> None:
+    crawler = FakeCrawler(fail("net::ERR_ABORTED at " + FILE_URL))
+    outcome, _, _ = await fetch_one(crawler=crawler, http=FakeHttp(squid_response), url=FILE_URL)
+    assert not outcome.ok
+    assert type(outcome.error) is FetchError
+    assert str(outcome.error) == f"fetch failed: ERR_SECURE_CONNECT_FAIL 0: {FILE_URL}"
+    assert outcome.status_code == 503
+
+
+async def test_download_challenge_without_proxy_is_non_html_content() -> None:
+    crawler = FakeCrawler(fail("net::ERR_ABORTED at " + FILE_URL))
+    outcome, _, _ = await fetch_one(
+        crawler=crawler, http=FakeHttp(challenge_response), url=FILE_URL
+    )
+    assert not outcome.ok
+    assert isinstance(outcome.error, NonHtmlContentError)

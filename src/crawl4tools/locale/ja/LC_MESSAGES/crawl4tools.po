@@ -6,7 +6,7 @@
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: crawl4tools 0.4.0\n"
+"Project-Id-Version: crawl4tools 1.0.0b1\n"
 "Report-Msgid-Bugs-To: https://github.com/xhighhongo41/crawl4tools/issues\n"
 "POT-Creation-Date: 2026-09-24 23:53+0900\n"
 "PO-Revision-Date: 2026-09-24 23:53+0900\n"
@@ -121,6 +121,18 @@ msgstr "{timeout_s:g} 秒でタイムアウトしました: {url}"
 #, python-brace-format
 msgid "proxy connection failed ({proxy}): {url}"
 msgstr "プロキシに接続できません({proxy}): {url}"
+
+#, python-brace-format
+msgid "TLS error: {summary}: {url}"
+msgstr "TLS エラーが発生しました: {summary}: {url}"
+
+#, python-brace-format
+msgid "TLS error: {url}"
+msgstr "TLS エラーが発生しました: {url}"
+
+#, python-brace-format
+msgid "blocked by a bot challenge (HTTP {status_code}): {url}"
+msgstr "ボット対策のチャレンジで拒否されました(HTTP {status_code}): {url}"
 
 msgid ""
 "browser is not installed. Run 'playwright install chromium' (or "

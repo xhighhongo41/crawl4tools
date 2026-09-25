@@ -494,3 +494,38 @@ async def test_serve_async_dispatcher_uses_the_settings_translator(
         TIMEOUT,
     )
     assert translators == [get_translator(lang)]
+
+
+async def test_serve_async_limits_the_graceful_shutdown(monkeypatch: pytest.MonkeyPatch) -> None:
+    configs: list[uvicorn.Config] = []
+
+    class RecordingConfig(uvicorn.Config):
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            super().__init__(*args, **kwargs)
+            configs.append(self)
+
+    monkeypatch.setattr(uvicorn, "Config", RecordingConfig)
+
+    def on_started(server: uvicorn.Server, ports: dict[str, int]) -> None:
+        server.should_exit = True
+
+    fake = FakeCrawler()
+
+    def factory(options: FetchOptions) -> Fetcher:
+        return Fetcher(options, crawler_factory=fake.factory, http_client_factory=FakeHttp())
+
+    await asyncio.wait_for(
+        serve_async(
+            ServerSettings(),
+            LoaderSettings(),
+            McpSettings(),
+            host="127.0.0.1",
+            loader_port=0,
+            mcp_port=0,
+            fetcher_factory=factory,
+            on_started=on_started,
+        ),
+        TIMEOUT,
+    )
+    assert host_module.GRACEFUL_SHUTDOWN_S == 5
+    assert [config.timeout_graceful_shutdown for config in configs] == [5]

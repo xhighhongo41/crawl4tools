@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
-# Pre-release checks: version declarations agree, the Changelog and READMEs are in their
-# final release-day state, the tag is free, the working tree is clean and pushed, check.sh
-# passes, the package builds cleanly with the right contents, and (best-effort) the docker
-# compose file is valid.
+# Pre-release checks: version declarations agree and are normalized PEP 440, the Changelog
+# and READMEs are in their final release-day state, the tag is free, the working tree is
+# clean and pushed, check.sh passes, the package builds cleanly with the right contents
+# (via tools/wheel_check.sh), compose.yaml points at the published Docker Hub image tag,
+# the release workflow exists and triggers on a published GitHub Release, and (best-effort,
+# needs the gh CLI, logged in) the release-time GitHub secrets are registered, the pypi
+# deployment environment exists, and CI (ci.yml) succeeded on HEAD.
 # Prints one line per check ("ok", "NG", or "skip" for a check that cannot run here) and
 # every problem before exiting non-zero.
 set -uo pipefail
@@ -27,6 +30,27 @@ if [[ -z "$version" ]]; then
     fail "pyproject.toml: version not found"
 else
     ok "pyproject.toml: version $version"
+fi
+
+# The version is written in normalized PEP 440 form, so it matches the tag and the
+# Docker image tag byte for byte (str(Version(v)) == v).
+if [[ -n "$version" ]]; then
+    normalized=$(uv run python -c '
+import sys
+
+from packaging.version import Version
+
+v = sys.argv[1]
+print(str(Version(v)) == v)
+' "$version")
+    if [[ "$normalized" == "True" ]]; then
+        ok "pyproject.toml: version $version is normalized PEP 440"
+    else
+        fail "pyproject.toml: version '$version' is not normalized PEP 440" \
+            "(str(Version(v)) != v; use the normal form, e.g. '1.0.0b1' not '1.0.0beta1')"
+    fi
+else
+    skip "pyproject.toml: version is normalized PEP 440 (version not found)"
 fi
 
 # Changelog: the newest released section must be the pyproject version.
@@ -72,12 +96,13 @@ else
     fail "tools/check.sh failed (run it directly to see the output)"
 fi
 
-# 1. compose.yaml builds/publishes the release image tag.
+# 1. compose.yaml pulls the published Docker Hub image at the release tag.
 compose_image=$(sed -n 's/^[[:space:]]*image:[[:space:]]*//p' compose.yaml | head -1)
-if [[ "$compose_image" == "crawl4tools:$version" ]]; then
-    ok "compose.yaml: image is crawl4tools:$version"
+if [[ "$compose_image" == "xhighhongo41/crawl4tools:$version" ]]; then
+    ok "compose.yaml: image is xhighhongo41/crawl4tools:$version"
 else
-    fail "compose.yaml: image is '${compose_image:-none}', expected 'crawl4tools:$version'"
+    fail "compose.yaml: image is '${compose_image:-none}'," \
+        "expected 'xhighhongo41/crawl4tools:$version'"
 fi
 
 # 2a. The [Unreleased] section holds no unreleased entries.
@@ -152,7 +177,8 @@ for cmd in crawl4cli crawl4mcp crawl4server; do
     fi
 done
 
-# 5. The wheel builds cleanly and ships the right files (Babel stays dev-only).
+# 5. The wheel builds cleanly and ships the right files (checked by tools/wheel_check.sh,
+# shared with CI's package job).
 build_dir=$(mktemp -d)
 trap 'rm -rf "$build_dir"' EXIT
 build_log=$(uv build --out-dir "$build_dir" 2>&1)
@@ -164,39 +190,10 @@ else
 fi
 wheel=$(find "$build_dir" -name '*.whl' | head -1)
 if [[ -n "$wheel" ]]; then
-    wheel_report=$(uv run python - "$wheel" <<'PY'
-import sys
-import zipfile
-
-with zipfile.ZipFile(sys.argv[1]) as archive:
-    names = archive.namelist()
-    metadata_name = next(n for n in names if n.endswith(".dist-info/METADATA"))
-    metadata = archive.read(metadata_name).decode("utf-8")
-
-has_mo = "crawl4tools/locale/ja/LC_MESSAGES/crawl4tools.mo" in names
-has_typed = "crawl4tools/py.typed" in names
-has_babel = any(
-    line.lower().startswith("requires-dist: babel") for line in metadata.splitlines()
-)
-print(int(has_mo), int(has_typed), int(has_babel))
-PY
-)
-    read -r mo_ok typed_ok babel_present <<<"$wheel_report"
-    if [[ "$mo_ok" == "1" ]]; then
-        ok "wheel: contains crawl4tools/locale/ja/LC_MESSAGES/crawl4tools.mo"
-    else
-        fail "wheel: missing crawl4tools/locale/ja/LC_MESSAGES/crawl4tools.mo"
-    fi
-    if [[ "$typed_ok" == "1" ]]; then
-        ok "wheel: contains crawl4tools/py.typed"
-    else
-        fail "wheel: missing crawl4tools/py.typed"
-    fi
-    if [[ "$babel_present" == "0" ]]; then
-        ok "wheel: METADATA has no Requires-Dist: babel line"
-    else
-        fail "wheel: METADATA declares a runtime dependency on babel (must stay dev-only)"
-    fi
+    wheel_output=$(tools/wheel_check.sh "$wheel")
+    printf '%s\n' "$wheel_output"
+    wheel_ng=$(grep -c '^NG  ' <<<"$wheel_output" || true)
+    failures=$((failures + wheel_ng))
 else
     fail "wheel: no wheel found in $build_dir (uv build failed)"
     fail "wheel: missing crawl4tools/locale/ja/LC_MESSAGES/crawl4tools.mo (no wheel to check)"
@@ -238,6 +235,107 @@ if command -v docker >/dev/null 2>&1; then
     fi
 else
     skip "docker compose config: docker is not installed"
+fi
+
+# 9. release.yml exists and publishes on a published GitHub Release.
+release_workflow=.github/workflows/release.yml
+if [[ -f "$release_workflow" ]]; then
+    has_published=$(uv run python - "$release_workflow" <<'PY'
+import sys
+
+import yaml
+
+with open(sys.argv[1], encoding="utf-8") as f:
+    data = yaml.safe_load(f)
+
+# PyYAML parses the unquoted key "on:" as the boolean True.
+on = data.get(True, data.get("on")) or {}
+types = (on.get("release") or {}).get("types") or []
+print("published" in types)
+PY
+)
+    if [[ "$has_published" == "True" ]]; then
+        ok "$release_workflow: release.types includes 'published'"
+    else
+        fail "$release_workflow: release.types does not include 'published'"
+    fi
+else
+    fail "$release_workflow: not found"
+fi
+
+# 10.-12. GitHub-side release readiness (best-effort: needs gh, installed and logged in).
+gh_ready=0
+if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+    gh_ready=1
+fi
+repo_slug=""
+if ((gh_ready)); then
+    repo_slug=$(gh repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null)
+fi
+if [[ -z "$repo_slug" ]]; then
+    origin_url=$(git remote get-url origin 2>/dev/null)
+    repo_slug=$(sed -E 's#^(git@github\.com:|https://github\.com/)([^/]+/[^/.]+)(\.git)?$#\2#' \
+        <<<"$origin_url")
+fi
+if ((gh_ready)) && [[ -z "$repo_slug" ]]; then
+    gh_ready=0
+fi
+
+# 10. The Docker Hub publishing secrets are registered (names only; values are never
+# read or printed).
+if ((gh_ready)); then
+    if secret_names=$(gh secret list --repo "$repo_slug" --json name --jq '.[].name' 2>&1); then
+        for secret in DOCKERHUB_USERNAME DOCKERHUB_TOKEN; do
+            if grep -qx "$secret" <<<"$secret_names"; then
+                ok "gh secret: $secret is registered"
+            else
+                fail "gh secret: $secret is not registered"
+            fi
+        done
+    else
+        fail "gh secret: could not list the repository secrets ($secret_names)"
+    fi
+else
+    skip "gh secret: DOCKERHUB_USERNAME is registered (gh is not installed or not logged in)"
+    skip "gh secret: DOCKERHUB_TOKEN is registered (gh is not installed or not logged in)"
+fi
+
+# 11. The pypi deployment environment exists (release.yml's pypi job needs it).
+if ((gh_ready)); then
+    if gh api "repos/$repo_slug/environments/pypi" >/dev/null 2>&1; then
+        ok "gh api: environment 'pypi' exists"
+    else
+        fail "gh api: environment 'pypi' does not exist" \
+            "(repos/$repo_slug/environments/pypi; create it before the release)"
+    fi
+else
+    skip "gh api: environment 'pypi' exists (gh is not installed or not logged in)"
+fi
+
+# 12. CI (ci.yml) succeeded on HEAD.
+if ((gh_ready)); then
+    head_sha=$(git rev-parse HEAD)
+    run_query=$(gh run list --commit "$head_sha" --workflow ci.yml --json status,conclusion \
+        --jq '(.[0].status // "") + "\t" + (.[0].conclusion // "")' 2>&1)
+    run_status=$?
+    if ((run_status != 0)); then
+        fail "gh run: could not query ci.yml runs for HEAD ($head_sha): $run_query" \
+            "(push the branch and wait for CI)"
+    else
+        IFS=$'\t' read -r ci_status ci_conclusion <<<"$run_query"
+        if [[ -z "$ci_status" ]]; then
+            fail "gh run: no ci.yml run found for HEAD ($head_sha) (push the branch and wait" \
+                "for CI)"
+        elif [[ "$ci_status" != "completed" ]]; then
+            fail "gh run: ci.yml run for HEAD is '$ci_status' (wait for CI to finish)"
+        elif [[ "$ci_conclusion" == "success" ]]; then
+            ok "gh run: ci.yml succeeded on HEAD ($head_sha)"
+        else
+            fail "gh run: ci.yml run for HEAD concluded '$ci_conclusion', expected 'success'"
+        fi
+    fi
+else
+    skip "gh run: ci.yml succeeded on HEAD (gh is not installed or not logged in)"
 fi
 
 if ((failures > 0)); then

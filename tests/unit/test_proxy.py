@@ -18,7 +18,13 @@ def test_supported_schemes_and_fallback_sets() -> None:
     assert SUPPORTED_SCHEMES == ("http", "https", "socks5")
     assert FALLBACK_STATUS_CODES == frozenset({407, 502, 503, 504})
     assert FALLBACK_KINDS == frozenset(
-        {FailureKind.PROXY, FailureKind.CONNECTION_REFUSED, FailureKind.TIMEOUT}
+        {
+            FailureKind.PROXY,
+            FailureKind.CONNECTION_REFUSED,
+            FailureKind.TIMEOUT,
+            FailureKind.TLS,
+            FailureKind.BLOCKED,
+        }
     )
 
 
@@ -137,6 +143,8 @@ def _options(
         (FailureKind.PROXY, None, True),
         (FailureKind.CONNECTION_REFUSED, None, True),
         (FailureKind.TIMEOUT, None, True),
+        (FailureKind.TLS, None, True),
+        (FailureKind.BLOCKED, 403, True),
         (FailureKind.NAME_RESOLUTION, None, False),
         (FailureKind.OTHER, None, False),
         (None, None, False),
@@ -150,6 +158,8 @@ def _options(
         "proxy-kind-fallback",
         "connection-refused-fallback",
         "timeout-fallback",
+        "tls-fallback",
+        "blocked-fallback",
         "name-resolution-no-fallback",
         "other-no-fallback",
         "none-kind-no-fallback",
@@ -165,6 +175,15 @@ def test_should_fallback_truth_table(
         already_retried=False,
     )
     assert result is expected
+
+
+@pytest.mark.parametrize("kind", [FailureKind.TLS, FailureKind.BLOCKED])
+def test_should_fallback_new_kinds_need_a_proxy_and_fallback(kind: FailureKind) -> None:
+    for options in (_options(proxy=None), _options(fallback=False)):
+        assert not should_fallback(
+            options=options, kind=kind, status_code=403, already_retried=False
+        )
+    assert not should_fallback(options=_options(), kind=kind, status_code=403, already_retried=True)
 
 
 def test_should_fallback_false_when_proxy_not_set() -> None:
