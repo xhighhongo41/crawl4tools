@@ -7,7 +7,10 @@
 # so no separate browser install step is needed at runtime. The final
 # process runs as the unprivileged "crawl" user, not root.
 
-FROM python:3.12-slim
+# The plain "3.12-slim" tag now points at Debian 13 (trixie); Playwright's
+# `install --with-deps` has reports of misdetecting Debian 13, so pin to
+# bookworm until that is confirmed to work.
+FROM python:3.12-slim-bookworm
 
 ENV PYTHONUNBUFFERED=1 \
     UV_COMPILE_BYTECODE=1 \
