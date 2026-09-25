@@ -1,7 +1,7 @@
 # crawl4tools server image
 #
-# Build:   docker compose up --build
-# Run:     docker compose up -d
+# Build:   docker build -t xhighhongo41/crawl4tools:<version> .
+# Run:     docker compose up -d   (pulls the published image unless built here)
 #
 # The image bundles Playwright's Chromium build (and its OS dependencies),
 # so no separate browser install step is needed at runtime. The final
