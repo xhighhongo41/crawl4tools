@@ -22,7 +22,7 @@ from types import TracebackType
 from typing import Any, Protocol
 
 from crawl4tools.engine.classify import build_error, classify_error_message, error_for_status
-from crawl4tools.engine.errors import FetchError, NonHtmlContentError
+from crawl4tools.engine.errors import FetchError, HttpStatusError, NonHtmlContentError
 from crawl4tools.engine.interception import InterferenceSign, detect_interference
 from crawl4tools.engine.models import (
     ContentKind,
@@ -64,6 +64,12 @@ _DOWNLOAD_PATH_FAILURES = frozenset(
 # How much of a downloaded body is decoded to look for a proxy's error page:
 # its title comes first, and the body may be a large file.
 _ERROR_PAGE_SCAN_BYTES = 64 * 1024
+
+# crawl4ai 0.9.4's own anti-bot check (antibot_detector.is_blocked) marks some
+# failed results this way, e.g. "Blocked by anti-bot protection: HTTP 503
+# with HTML content (180 bytes)". See _judge, which turns these back into the
+# HTTP status they report whenever one is available.
+_ANTI_BOT_PREFIX = "Blocked by anti-bot protection"
 
 
 class CrawlerLike(Protocol):
@@ -490,6 +496,13 @@ class Fetcher:
         ``status_code`` when absent), and its headers are those the
         ``after_goto`` hook kept for *url* with that same status. Otherwise
         the first response's headers (``response_headers``) are used.
+
+        A failure whose message is crawl4ai's own anti-bot verdict (see
+        ``_ANTI_BOT_PREFIX``) is reported as the HTTP status it names,
+        provided one was actually returned, so it is treated exactly like
+        the same status without that verdict (in particular, it can trigger
+        the direct-connection fallback for 503 like any other HTTP_STATUS
+        failure). Without a usable status it stays a generic failure.
         """
         final = self._take_final_response(url)
         first_status: int | None = getattr(result, "status_code", None)
@@ -510,6 +523,13 @@ class Fetcher:
 
         if not getattr(result, "success", False):
             detail: str | None = getattr(result, "error_message", None)
+            if (
+                detail is not None
+                and detail.startswith(_ANTI_BOT_PREFIX)
+                and status_code is not None
+                and status_code >= 400
+            ):
+                return self._failure(url, HttpStatusError(url, status_code), options, status_code)
             kind = classify_error_message(detail)
             if kind is FailureKind.NON_HTML:
                 return await self._downloaded_outcome(

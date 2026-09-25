@@ -1046,10 +1046,12 @@ async def test_interception_on_both_attempts_retries_only_once(
         pytest.param(
             challenge(success=True), HttpStatusError, f"HTTP 403 Forbidden: {URL}", id="s3"
         ),
+        # Without an intercepting proxy, crawl4ai's own anti-bot verdict is
+        # reported as the HTTP status it names, same as the site's own 403.
         pytest.param(
             challenge(success=False),
-            FetchError,
-            f"fetch failed: {anti_bot(403)}: {URL}",
+            HttpStatusError,
+            f"HTTP 403 Forbidden: {URL}",
             id="s3-anti-bot",
         ),
     ],
@@ -1107,6 +1109,9 @@ async def test_squid_custom_denial_page_is_not_bypassed() -> None:
 
 
 async def test_squid_policy_denial_rejected_by_crawl4ai_is_not_bypassed() -> None:
+    # crawl4ai's anti-bot verdict on top of a Squid policy denial (a
+    # deliberate 403, not interference) is still reported as HTTP 403, now
+    # via HttpStatusError rather than the generic OTHER failure (T5).
     denied = make_result(
         success=False,
         error_message=anti_bot(403),
@@ -1117,8 +1122,9 @@ async def test_squid_policy_denial_rejected_by_crawl4ai_is_not_bypassed() -> Non
     crawler = FakeCrawler(proxy_aware(denied, make_result()))
     outcome, crawler, _ = await fetch_one(FetchOptions(proxy=PROXY), crawler=crawler)
     assert not outcome.ok
-    assert outcome.error is not None
-    assert outcome.error.kind is FailureKind.OTHER
+    assert isinstance(outcome.error, HttpStatusError)
+    assert outcome.error.kind is FailureKind.HTTP_STATUS
+    assert outcome.status_code == 403
     assert len(crawler.calls) == 1
     assert outcome.notes == []
 
@@ -1127,6 +1133,113 @@ async def test_squid_title_on_a_successful_page_is_kept() -> None:
     page = make_result(status_code=200, html=squid_page("ERR_SECURE_CONNECT_FAIL"))
     outcome, crawler, _ = await fetch_one(FetchOptions(proxy=PROXY), crawler=FakeCrawler(page))
     assert outcome.ok
+    assert len(crawler.calls) == 1
+    assert outcome.notes == []
+
+
+# --- crawl4ai's anti-bot verdict reported as an HTTP status failure (T5) -------------------
+
+
+def anti_bot_result(reported_status: int | None, **overrides: Any) -> Any:
+    """A crawl4ai result rejected by its own anti-bot check for *reported_status*.
+
+    Neither a Squid error page nor a bot-challenge header, so it is not
+    caught by the interference check (S2/S3) before the anti-bot handling.
+    ``status_code``/``redirected_status_code`` can be overridden separately
+    from the status *reported_status* names in the error message.
+    """
+    message_status = 503 if reported_status is None else reported_status
+    fields: dict[str, Any] = {
+        "success": False,
+        "error_message": anti_bot(message_status),
+        "status_code": reported_status,
+        "response_headers": {"content-type": "text/html"},
+        "html": "<html><body>blocked</body></html>",
+    }
+    fields.update(overrides)
+    return make_result(**fields)
+
+
+async def test_anti_bot_503_through_proxy_falls_back_to_direct() -> None:
+    crawler = FakeCrawler(proxy_aware(anti_bot_result(503), make_result()))
+    outcome, crawler, http = await fetch_one(FetchOptions(proxy=PROXY), crawler=crawler)
+    assert outcome.ok, outcome.error
+    assert len(crawler.calls) == 2
+    assert crawler.calls[0][1].proxy_config is not None
+    assert crawler.calls[1][1].proxy_config is None
+    assert http.proxies == [PROXY, None]
+    text = str(outcome.notes[0])
+    assert "HTTP 503" in text
+    assert "retried with a direct connection" in text
+
+
+@pytest.mark.parametrize(
+    ("status_code", "reason"),
+    [
+        pytest.param(403, "Forbidden", id="403"),
+        pytest.param(429, "Too Many Requests", id="429"),
+    ],
+)
+async def test_anti_bot_403_429_through_proxy_is_not_bypassed(
+    status_code: int, reason: str
+) -> None:
+    crawler = FakeCrawler(proxy_aware(anti_bot_result(status_code), make_result()))
+    outcome, crawler, _ = await fetch_one(FetchOptions(proxy=PROXY), crawler=crawler)
+    assert not outcome.ok
+    assert isinstance(outcome.error, HttpStatusError)
+    assert outcome.status_code == status_code
+    assert outcome.error.kind is FailureKind.HTTP_STATUS
+    assert str(outcome.error).startswith(f"HTTP {status_code} {reason}: ")
+    assert len(crawler.calls) == 1
+    assert outcome.notes == []
+
+
+async def test_anti_bot_503_without_proxy_is_not_retried() -> None:
+    outcome, crawler, _ = await fetch_one(crawler=FakeCrawler(anti_bot_result(503)))
+    assert not outcome.ok
+    assert isinstance(outcome.error, HttpStatusError)
+    assert outcome.status_code == 503
+    assert len(crawler.calls) == 1
+    assert outcome.notes == []
+
+
+async def test_anti_bot_near_empty_200_stays_a_generic_failure() -> None:
+    result = make_result(
+        success=False,
+        error_message="Blocked by anti-bot protection: Near-empty content (5 bytes) with HTTP 200",
+        status_code=200,
+    )
+    outcome, crawler, _ = await fetch_one(crawler=FakeCrawler(result))
+    assert not outcome.ok
+    assert outcome.error is not None
+    assert outcome.error.kind is FailureKind.OTHER
+    assert "Blocked by anti-bot protection" in str(outcome.error)
+    assert len(crawler.calls) == 1
+
+
+async def test_anti_bot_without_status_code_stays_a_generic_failure() -> None:
+    outcome, crawler, _ = await fetch_one(crawler=FakeCrawler(anti_bot_result(None)))
+    assert not outcome.ok
+    assert outcome.error is not None
+    assert outcome.error.kind is FailureKind.OTHER
+
+
+async def test_anti_bot_uses_the_final_status_code_after_a_redirect() -> None:
+    result = anti_bot_result(503, status_code=301, redirected_status_code=503)
+    outcome, crawler, _ = await fetch_one(crawler=FakeCrawler(result))
+    assert not outcome.ok
+    assert isinstance(outcome.error, HttpStatusError)
+    assert outcome.status_code == 503
+
+
+async def test_anti_bot_503_with_fallback_disabled_is_not_retried() -> None:
+    crawler = FakeCrawler(anti_bot_result(503))
+    outcome, crawler, _ = await fetch_one(
+        FetchOptions(proxy=PROXY, fallback=False), crawler=crawler
+    )
+    assert not outcome.ok
+    assert isinstance(outcome.error, HttpStatusError)
+    assert outcome.status_code == 503
     assert len(crawler.calls) == 1
     assert outcome.notes == []
 
