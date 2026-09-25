@@ -12,7 +12,7 @@ crawl4tools is a web crawler built on top of the [crawl4ai](https://github.com/u
 
 ## Status
 
-**Beta.** This release (1.0.0b1) is the first beta of crawl4tools, published on [PyPI](https://pypi.org/project/crawl4tools/) and [Docker Hub](https://hub.docker.com/r/xhighhongo41/crawl4tools). It provides the local CLI `crawl4cli`, the MCP server `crawl4mcp`, and the combined Open WebUI web loader + MCP server `crawl4server`, with a Dockerfile and compose file. All three commands can show their messages in English or Japanese. Feedback from real use is welcome on the [Issues page](https://github.com/xhighhongo41/crawl4tools/issues); 1.0.0 will follow once this beta has been tested.
+**Beta.** This release (1.0.0b2) is a beta of crawl4tools, published on [PyPI](https://pypi.org/project/crawl4tools/) and [Docker Hub](https://hub.docker.com/r/xhighhongo41/crawl4tools). It provides the local CLI `crawl4cli`, the MCP server `crawl4mcp`, and the combined Open WebUI web loader + MCP server `crawl4server`, with a Dockerfile and compose file. All three commands can show their messages in English or Japanese. Feedback from real use is welcome on the [Issues page](https://github.com/xhighhongo41/crawl4tools/issues); 1.0.0 will follow once this beta has been tested.
 
 ## Features
 
@@ -165,7 +165,7 @@ docker compose up -d
 curl http://localhost:8766/health
 ```
 
-Without compose, the same image can be pulled directly: `docker pull xhighhongo41/crawl4tools:1.0.0b1`. Beta versions are not tagged `latest`, so always use the version tag. To build the image locally instead of pulling it, run `docker build -t xhighhongo41/crawl4tools:1.0.0b1 .` and then `docker compose up -d`.
+Without compose, the same image can be pulled directly: `docker pull xhighhongo41/crawl4tools:1.0.0b2`. Beta versions are not tagged `latest`, so always use the version tag. To build the image locally instead of pulling it, run `docker build -t xhighhongo41/crawl4tools:1.0.0b2 .` and then `docker compose up -d`.
 
 Set `CRAWL4SERVER_LOADER_API_KEY` in `compose.yaml`'s `environment` section. The container runs as uid 1000, so `downloads/` must be writable by it; `shm_size: 1gb` is set for Chromium. When Open WebUI runs in the same compose project, point it at `http://crawl4tools:8766/crawl` instead of `localhost`. Stopping the container (`docker stop`, or `docker compose down`) lets requests already in progress finish, for up to 5 seconds, before closing the remaining connections.
 

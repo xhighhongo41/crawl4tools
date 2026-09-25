@@ -12,7 +12,7 @@ crawl4tools は [crawl4ai](https://github.com/unclecode/crawl4ai) ライブラ�
 
 ## 現状
 
-**Beta。** このリリース(1.0.0b1)は crawl4tools の最初のベータ版で、[PyPI](https://pypi.org/project/crawl4tools/) と [Docker Hub](https://hub.docker.com/r/xhighhongo41/crawl4tools) で公開されています。ローカルCLI `crawl4cli`、MCPサーバー `crawl4mcp`、Open WebUI Web loader と MCP を兼ねる `crawl4server` が使え、Dockerfile と compose ファイルも用意されています。メッセージは英語・日本語のどちらでも表示できます。実際に使ってみたフィードバックを歓迎します([Issuesページ](https://github.com/xhighhongo41/crawl4tools/issues)へどうぞ)。このベータ版でのテストを経て、1.0.0 の正式版を予定しています。
+**Beta。** このリリース(1.0.0b2)は crawl4tools のベータ版で、[PyPI](https://pypi.org/project/crawl4tools/) と [Docker Hub](https://hub.docker.com/r/xhighhongo41/crawl4tools) で公開されています。ローカルCLI `crawl4cli`、MCPサーバー `crawl4mcp`、Open WebUI Web loader と MCP を兼ねる `crawl4server` が使え、Dockerfile と compose ファイルも用意されています。メッセージは英語・日本語のどちらでも表示できます。実際に使ってみたフィードバックを歓迎します([Issuesページ](https://github.com/xhighhongo41/crawl4tools/issues)へどうぞ)。このベータ版でのテストを経て、1.0.0 の正式版を予定しています。
 
 ## 機能
 
@@ -165,7 +165,7 @@ docker compose up -d
 curl http://localhost:8766/health
 ```
 
-compose を使わずに同じイメージを直接取得することもできます: `docker pull xhighhongo41/crawl4tools:1.0.0b1`。ベータ版には `latest` タグが付かないため、必ずバージョンタグを指定してください。取得せずローカルでビルドする場合は、`docker build -t xhighhongo41/crawl4tools:1.0.0b1 .` を実行してから `docker compose up -d` してください。
+compose を使わずに同じイメージを直接取得することもできます: `docker pull xhighhongo41/crawl4tools:1.0.0b2`。ベータ版には `latest` タグが付かないため、必ずバージョンタグを指定してください。取得せずローカルでビルドする場合は、`docker build -t xhighhongo41/crawl4tools:1.0.0b2 .` を実行してから `docker compose up -d` してください。
 
 `compose.yaml` の `environment` セクションで `CRAWL4SERVER_LOADER_API_KEY` を設定してください。コンテナは uid 1000 で実行されるため、`downloads/` はそのユーザーが書き込めるようにしておく必要があります。Chromium 用に `shm_size: 1gb` が設定されています。Open WebUI が同じ compose プロジェクトで動いている場合は、`localhost` の代わりに `http://crawl4tools:8766/crawl` を指定してください。コンテナを停止する際(`docker stop` または `docker compose down`)は、処理中のリクエストを最大5秒待ってから残りの接続を閉じます。
 

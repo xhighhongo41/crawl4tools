@@ -1,6 +1,6 @@
 [project]
 name = "crawl4tools"
-version = "1.0.0b1"
+version = "1.0.0b2"
 description = "Web crawler server for Open WebUI and MCP, plus a local download CLI, built on crawl4ai"
 readme = "README.md"
 license = "Apache-2.0"
