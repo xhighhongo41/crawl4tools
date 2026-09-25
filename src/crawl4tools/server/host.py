@@ -36,6 +36,11 @@ StartedCallback = Callable[[uvicorn.Server, dict[str, int]], None]
 #: Backlog of the listening sockets (uvicorn's default).
 _BACKLOG = 2048
 
+#: Seconds to let requests in progress finish on SIGINT/SIGTERM before the
+#: remaining connections are closed. It stays well within Docker's default
+#: 10 seconds between SIGTERM and SIGKILL.
+GRACEFUL_SHUTDOWN_S = 5
+
 
 @dataclass(frozen=True)
 class McpSettings:
@@ -215,8 +220,10 @@ async def serve_async(
     both sockets. *on_started* is called once the server listens, with the
     server (set its ``should_exit`` to stop it) and the actual ports.
 
-    On SIGINT/SIGTERM uvicorn shuts down gracefully and then re-raises the
-    signal, so a :class:`KeyboardInterrupt` surfaces after cleanup.
+    On SIGINT/SIGTERM uvicorn shuts down gracefully, waiting at most
+    :data:`GRACEFUL_SHUTDOWN_S` seconds for requests in progress, and then
+    re-raises the signal, so a :class:`KeyboardInterrupt` surfaces after
+    cleanup.
 
     Raises:
         ListenError: if a port cannot be bound; nothing is started then.
@@ -238,6 +245,7 @@ async def serve_async(
                     lifespan="off",
                     log_level="info" if verbose else "warning",
                     access_log=verbose,
+                    timeout_graceful_shutdown=GRACEFUL_SHUTDOWN_S,
                 )
                 await _Server(config, ports, on_started).serve(sockets=sockets)
     finally:
