@@ -12,7 +12,7 @@ crawl4tools is a web crawler built on top of the [crawl4ai](https://github.com/u
 
 ## Status
 
-**Alpha.** This release (1.0.0b1) provides the local CLI `crawl4cli`, the MCP server `crawl4mcp`, and the combined Open WebUI web loader + MCP server `crawl4server`, with a Dockerfile and compose file. All three commands can show their messages in English or Japanese.
+**Beta.** This release (1.0.0b1) is the first beta of crawl4tools, published on [PyPI](https://pypi.org/project/crawl4tools/) and [Docker Hub](https://hub.docker.com/r/xhighhongo41/crawl4tools). It provides the local CLI `crawl4cli`, the MCP server `crawl4mcp`, and the combined Open WebUI web loader + MCP server `crawl4server`, with a Dockerfile and compose file. All three commands can show their messages in English or Japanese. Feedback from real use is welcome on the [Issues page](https://github.com/xhighhongo41/crawl4tools/issues); 1.0.0 will follow once this beta has been tested.
 
 ## Features
 
@@ -21,7 +21,7 @@ Available now (CLI):
 - Download one or more URLs as Markdown, HTML, PDF, screenshot (PNG), MHTML, or the raw source
 - PDFs are transcribed to Markdown; images and other non-HTML files are saved as they are
 - Clear error messages for HTTP errors, unknown hosts, refused connections, timeouts, and a missing browser
-- Downloading through an HTTP/HTTPS/SOCKS5 proxy, with a single retry over a direct connection when the proxy itself fails
+- Downloading through an HTTP/HTTPS/SOCKS5 proxy, with a single retry over a direct connection when the proxy itself fails or breaks the result — including when a proxy that intercepts TLS ("SSL bumping") shows a TLS error, an error page from the proxy itself, or a bot challenge seen through it; a refusal by the proxy itself is never bypassed
 - Messages in English or Japanese (see [Language of messages](#language-of-messages))
 
 Available now (MCP server):
@@ -29,7 +29,7 @@ Available now (MCP server):
 - Two tools: `fetch` returns pages directly to the client as Markdown (default), HTML, or a PNG screenshot (images come back as images, PDFs are transcribed to Markdown); `download` saves pages in any format (Markdown, HTML, PDF, screenshot, MHTML, or raw) into a directory on the server and returns the paths
 - Several URLs per call (default limit 20), fetched concurrently under a server-wide limit (default 3), sharing one headless browser
 - stdio (default) and Streamable HTTP transports
-- Proxy support with a direct-connection fallback, configured on the server side
+- Proxy support with a direct-connection fallback, configured on the server side, including for a proxy that intercepts TLS
 - Settings via command-line options, `CRAWL4MCP_*` environment variables, or a YAML/JSON config file
 - Messages in English or Japanese (see [Language of messages](#language-of-messages))
 
@@ -44,20 +44,24 @@ Available now (Open WebUI web loader, `crawl4server`):
 
 Planned:
 
-- Prebuilt Docker image on a registry
 - Authentication for the MCP endpoint
-- Fallback to a direct connection when SSL bumping by the proxy breaks the result
 
 ## Installation
 
 The CLI and the MCP server need Python 3.11 or newer and [uv](https://docs.astral.sh/uv/).
 
 ```sh
-uv tool install --with-executables-from playwright git+https://github.com/xhighhongo41/crawl4tools
+uv tool install --with-executables-from playwright crawl4tools
 playwright install chromium   # downloads the headless browser (once)
 ```
 
-This installs `crawl4cli`, `crawl4mcp`, and `crawl4server`.
+This installs `crawl4cli`, `crawl4mcp`, and `crawl4server` from [PyPI](https://pypi.org/project/crawl4tools/).
+
+To install the development version instead, point `uv` at the git repository:
+
+```sh
+uv tool install --with-executables-from playwright git+https://github.com/xhighhongo41/crawl4tools
+```
 
 The browser is stored in Playwright's cache directory (for example `~/Library/Caches/ms-playwright` on macOS). crawl4ai also creates a `~/.crawl4ai` directory for its own data.
 
@@ -151,21 +155,23 @@ lang: ja
 
 ### Docker
 
-The repository ships a `Dockerfile` and `compose.yaml` (no image is published to a registry yet, so build it locally):
+`compose.yaml` pulls the published image from [Docker Hub](https://hub.docker.com/r/xhighhongo41/crawl4tools) (`xhighhongo41/crawl4tools`, built for linux/amd64 and linux/arm64):
 
 ```sh
 git clone https://github.com/xhighhongo41/crawl4tools
 cd crawl4tools
 mkdir -p downloads
-docker compose up -d --build
+docker compose up -d
 curl http://localhost:8766/health
 ```
 
-Set `CRAWL4SERVER_LOADER_API_KEY` in `compose.yaml`'s `environment` section. The container runs as uid 1000, so `downloads/` must be writable by it; `shm_size: 1gb` is set for Chromium. When Open WebUI runs in the same compose project, point it at `http://crawl4tools:8766/crawl` instead of `localhost`.
+Without compose, the same image can be pulled directly: `docker pull xhighhongo41/crawl4tools:1.0.0b1`. Beta versions are not tagged `latest`, so always use the version tag. To build the image locally instead of pulling it, run `docker build -t xhighhongo41/crawl4tools:1.0.0b1 .` and then `docker compose up -d`.
+
+Set `CRAWL4SERVER_LOADER_API_KEY` in `compose.yaml`'s `environment` section. The container runs as uid 1000, so `downloads/` must be writable by it; `shm_size: 1gb` is set for Chromium. When Open WebUI runs in the same compose project, point it at `http://crawl4tools:8766/crawl` instead of `localhost`. Stopping the container (`docker stop`, or `docker compose down`) lets requests already in progress finish, for up to 5 seconds, before closing the remaining connections.
 
 ### Security
 
-The web loader checks the API key only when `--loader-api-key` is set; the MCP port has no authentication at all. When listening on a non-loopback host (as in the Docker setup), set a loader API key and do not expose the MCP port beyond a trusted network — `crawl4server` prints a warning to stderr at startup in that case.
+The web loader checks the API key only when `--loader-api-key` is set; the MCP port has no authentication at all. When listening on a non-loopback host (as in the Docker setup), set a loader API key and do not expose the MCP port beyond a trusted network — `crawl4server` prints a warning to stderr at startup in that case. `crawl4server` serves plain HTTP; if you need HTTPS, terminate TLS at a reverse proxy placed in front of it.
 
 ## MCP server
 

@@ -8,11 +8,11 @@ crawl4tools は [crawl4ai](https://github.com/unclecode/crawl4ai) ライブラ�
 
 1. **Open WebUI の external Web loader** として直接使えるHTTPサーバー `crawl4server`。Open WebUI の Web検索で取得したURLの本文をMarkdownで返します。Open WebUI 側は管理画面で Web Loader Engine を `external` に、External Web Loader URL を設定するだけで利用できます(同等の環境変数は `WEB_LOADER_ENGINE=external` と `EXTERNAL_WEB_LOADER_URL`)。
 2. **MCPサーバー**。Claude Code などのAIエージェントから、要約ではなく**全文**を取得できるWeb fetchツールとして機能します。
-3. **ローカルCLI**。URLを指定してMarkdown等の形式でダウンロードします。複数URLの一括ダウンロードにも対応する予定です。
+3. **ローカルCLI**。指定したURL(複数のURLを一度に指定することもできます)をMarkdown等の形式でダウンロードします。
 
 ## 現状
 
-**Alpha。** このリリース(1.0.0b1)ではローカルCLI `crawl4cli`、MCPサーバー `crawl4mcp`、Open WebUI Web loader と MCP を兼ねる `crawl4server` が使えます。Dockerfile と compose ファイルも用意されています。メッセージは英語・日本語のどちらでも表示できます。
+**Beta。** このリリース(1.0.0b1)は crawl4tools の最初のベータ版で、[PyPI](https://pypi.org/project/crawl4tools/) と [Docker Hub](https://hub.docker.com/r/xhighhongo41/crawl4tools) で公開されています。ローカルCLI `crawl4cli`、MCPサーバー `crawl4mcp`、Open WebUI Web loader と MCP を兼ねる `crawl4server` が使え、Dockerfile と compose ファイルも用意されています。メッセージは英語・日本語のどちらでも表示できます。実際に使ってみたフィードバックを歓迎します([Issuesページ](https://github.com/xhighhongo41/crawl4tools/issues)へどうぞ)。このベータ版でのテストを経て、1.0.0 の正式版を予定しています。
 
 ## 機能
 
@@ -21,7 +21,7 @@ crawl4tools は [crawl4ai](https://github.com/unclecode/crawl4ai) ライブラ�
 - 1つまたは複数のURLを Markdown、HTML、PDF、スクリーンショット(PNG)、MHTML、元データのままの形式でダウンロード
 - PDF は Markdown に文字起こし。画像などHTML以外のファイルはそのまま保存
 - HTTPエラー、ホスト名の解決失敗、接続拒否、タイムアウト、ブラウザ未導入を区別した分かりやすいエラーメッセージ
-- HTTP/HTTPS/SOCKS5 プロキシ経由のダウンロード。プロキシ自体の障害時は直接通信で1回だけ再試行
+- HTTP/HTTPS/SOCKS5 プロキシ経由のダウンロード。プロキシ自体の障害や、結果を壊す場合は直接通信で1回だけ再試行 ── TLS を傍受する(「SSL bump」)プロキシで、TLSエラー、プロキシ自身が生成したエラーページ、プロキシ越しに見えるボット判定のいずれかが起きた場合を含む。プロキシ自体による拒否は迂回しない
 - メッセージは英語・日本語のどちらでも表示可能([メッセージの言語](#メッセージの言語)参照)
 
 利用できるもの(MCPサーバー):
@@ -29,7 +29,7 @@ crawl4tools は [crawl4ai](https://github.com/unclecode/crawl4ai) ライブラ�
 - 2つのツール: `fetch` はページを Markdown(既定)、HTML、PNGスクリーンショットとしてそのままクライアントに返す(画像は画像として、PDFは Markdown に文字起こしして返る)。`download` は Markdown、HTML、PDF、スクリーンショット、MHTML、元データのいずれかの形式でサーバー上のディレクトリに保存し、保存先パスを返す
 - 1回の呼び出しで複数URL(既定の上限20件)を指定でき、サーバー全体の同時実行数の上限(既定3)のもとで並行して取得。ヘッドレスブラウザは1つを共有
 - stdio(既定)と Streamable HTTP の両トランスポートに対応
-- サーバー側で設定するプロキシと直接通信へのフォールバック
+- サーバー側で設定するプロキシと直接通信へのフォールバック(TLSを傍受するプロキシにも対応)
 - 設定はコマンドラインオプション、`CRAWL4MCP_*` 環境変数、YAML/JSON設定ファイルのいずれでも可能
 - メッセージは英語・日本語のどちらでも表示可能([メッセージの言語](#メッセージの言語)参照)
 
@@ -44,20 +44,24 @@ crawl4tools は [crawl4ai](https://github.com/unclecode/crawl4ai) ライブラ�
 
 予定:
 
-- レジストリで配布するビルド済みDockerイメージ
 - MCPエンドポイントの認証
-- プロキシのSSL bumpで結果が壊れる場合の直接通信へのフォールバック
 
 ## インストール
 
 CLI と MCPサーバーには Python 3.11 以上と [uv](https://docs.astral.sh/uv/) が必要です。
 
 ```sh
-uv tool install --with-executables-from playwright git+https://github.com/xhighhongo41/crawl4tools
+uv tool install --with-executables-from playwright crawl4tools
 playwright install chromium   # ヘッドレスブラウザをダウンロード(初回のみ)
 ```
 
-これで `crawl4cli`、`crawl4mcp`、`crawl4server` がインストールされます。
+これで [PyPI](https://pypi.org/project/crawl4tools/) から `crawl4cli`、`crawl4mcp`、`crawl4server` がインストールされます。
+
+代わりに開発版をインストールするには、`uv` の指定先をgitリポジトリにします。
+
+```sh
+uv tool install --with-executables-from playwright git+https://github.com/xhighhongo41/crawl4tools
+```
 
 ブラウザは Playwright のキャッシュディレクトリ(macOS なら `~/Library/Caches/ms-playwright` など)に保存されます。また crawl4ai が自身のデータ用に `~/.crawl4ai` ディレクトリを作成します。
 
@@ -151,21 +155,23 @@ lang: ja
 
 ### Docker
 
-リポジトリには `Dockerfile` と `compose.yaml` が同梱されています(まだレジストリにイメージを公開していないため、ローカルでビルドします)。
+`compose.yaml` は [Docker Hub](https://hub.docker.com/r/xhighhongo41/crawl4tools) で公開されているイメージ(`xhighhongo41/crawl4tools`、linux/amd64・linux/arm64 に対応)を取得します。
 
 ```sh
 git clone https://github.com/xhighhongo41/crawl4tools
 cd crawl4tools
 mkdir -p downloads
-docker compose up -d --build
+docker compose up -d
 curl http://localhost:8766/health
 ```
 
-`compose.yaml` の `environment` セクションで `CRAWL4SERVER_LOADER_API_KEY` を設定してください。コンテナは uid 1000 で実行されるため、`downloads/` はそのユーザーが書き込めるようにしておく必要があります。Chromium 用に `shm_size: 1gb` が設定されています。Open WebUI が同じ compose プロジェクトで動いている場合は、`localhost` の代わりに `http://crawl4tools:8766/crawl` を指定してください。
+compose を使わずに同じイメージを直接取得することもできます: `docker pull xhighhongo41/crawl4tools:1.0.0b1`。ベータ版には `latest` タグが付かないため、必ずバージョンタグを指定してください。取得せずローカルでビルドする場合は、`docker build -t xhighhongo41/crawl4tools:1.0.0b1 .` を実行してから `docker compose up -d` してください。
+
+`compose.yaml` の `environment` セクションで `CRAWL4SERVER_LOADER_API_KEY` を設定してください。コンテナは uid 1000 で実行されるため、`downloads/` はそのユーザーが書き込めるようにしておく必要があります。Chromium 用に `shm_size: 1gb` が設定されています。Open WebUI が同じ compose プロジェクトで動いている場合は、`localhost` の代わりに `http://crawl4tools:8766/crawl` を指定してください。コンテナを停止する際(`docker stop` または `docker compose down`)は、処理中のリクエストを最大5秒待ってから残りの接続を閉じます。
 
 ### セキュリティ
 
-Web loader は `--loader-api-key` を設定した場合のみAPIキーを検証します。MCPポートには認証機能が一切ありません。ループバック以外のホストで待ち受ける場合(Dockerでの構成など)は、loader APIキーを設定し、MCPポートを信頼できるネットワークの外に公開しないでください。その場合 `crawl4server` は起動時に標準エラーへ警告を出力します。
+Web loader は `--loader-api-key` を設定した場合のみAPIキーを検証します。MCPポートには認証機能が一切ありません。ループバック以外のホストで待ち受ける場合(Dockerでの構成など)は、loader APIキーを設定し、MCPポートを信頼できるネットワークの外に公開しないでください。その場合 `crawl4server` は起動時に標準エラーへ警告を出力します。`crawl4server` はHTTPのみで動作します。HTTPSが必要な場合は、手前にリバースプロキシを置いてTLSを終端してください。
 
 ## MCPサーバー
 
