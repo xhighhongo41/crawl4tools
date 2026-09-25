@@ -1089,6 +1089,22 @@ async def test_squid_policy_denial_is_not_bypassed(code: str) -> None:
     assert outcome.notes == []
 
 
+async def test_squid_custom_denial_page_is_not_bypassed() -> None:
+    # An administrator's own deny_info page: unknown code, but a 403 from the proxy.
+    denied = make_result(
+        status_code=403,
+        html=squid_page("ERR_MY_BLOCKLIST"),
+        response_headers={"content-type": "text/html", "X-Squid-Error": "ERR_MY_BLOCKLIST 0"},
+    )
+    crawler = FakeCrawler(proxy_aware(denied, make_result()))
+    outcome, crawler, _ = await fetch_one(FetchOptions(proxy=PROXY), crawler=crawler)
+    assert not outcome.ok
+    assert isinstance(outcome.error, HttpStatusError)
+    assert outcome.status_code == 403
+    assert len(crawler.calls) == 1
+    assert outcome.notes == []
+
+
 async def test_squid_policy_denial_rejected_by_crawl4ai_is_not_bypassed() -> None:
     denied = make_result(
         success=False,

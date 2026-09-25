@@ -131,7 +131,7 @@ def test_squid_error_header_detail_is_stripped() -> None:
     assert found == Interference(InterferenceSign.PROXY_ERROR_PAGE, "ERR_CONNECT_FAIL 111")
 
 
-@pytest.mark.parametrize("status_code", [503, 403, 400, 599, None])
+@pytest.mark.parametrize("status_code", [503, 400, 599, None])
 def test_squid_title_with_an_error_status_is_a_proxy_error_page(status_code: int | None) -> None:
     found = detect_interference({"content-type": "text/html"}, squid_page(), status_code)
     assert found == Interference(InterferenceSign.PROXY_ERROR_PAGE, "ERR_SECURE_CONNECT_FAIL")
@@ -200,6 +200,29 @@ def test_policy_denial_header_without_the_status_suffix_is_not_interference(code
 def test_policy_denial_page_without_the_header_is_not_interference(code: str) -> None:
     # The header can be removed by the administrator; the page still names the error.
     assert detect_interference({}, squid_page(code=code), 403) is None
+
+
+# A 403 from the proxy is a refusal whatever its code, including a custom deny_info
+# page the administrator made (the site's own 403 carries no proxy marker at all).
+@pytest.mark.parametrize(
+    ("headers", "html"),
+    [
+        ({"X-Squid-Error": "ERR_MY_BLOCKLIST 0"}, ""),
+        ({"X-Squid-Error": "ERR_SECURE_CONNECT_FAIL 0"}, ""),
+        ({}, squid_page(code="ERR_MY_BLOCKLIST")),
+        ({}, squid_page(code=None)),
+    ],
+    ids=["custom-code-header", "failure-code-header", "custom-code-page", "page-without-code"],
+)
+def test_proxy_error_page_with_status_403_is_not_interference(
+    headers: dict[str, str], html: str
+) -> None:
+    assert detect_interference(headers, html, 403) is None
+
+
+def test_custom_squid_error_with_a_failure_status_is_a_proxy_error_page() -> None:
+    found = detect_interference({"X-Squid-Error": "ERR_MY_GATEWAY 0"}, "", 502)
+    assert found == Interference(InterferenceSign.PROXY_ERROR_PAGE, "ERR_MY_GATEWAY 0")
 
 
 @pytest.mark.parametrize("value", ["", "   "], ids=["empty-header", "blank-header"])

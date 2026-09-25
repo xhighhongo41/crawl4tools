@@ -63,6 +63,9 @@ class ProxyErrorPage:
     code_pattern: re.Pattern[str]
     # Error codes that mean the administrator refused the request on purpose.
     policy_denials: frozenset[str]
+    # HTTP statuses of a refusal: covers the administrator's own deny pages too,
+    # whose codes no table can list.
+    policy_statuses: frozenset[int]
 
 
 # Squid names the error in the X-Squid-Error header ("ERR_SECURE_CONNECT_FAIL 0")
@@ -81,6 +84,9 @@ SQUID_ERROR_PAGE = ProxyErrorPage(
             "ERR_CACHE_MGR_ACCESS_DENIED",
         }
     ),
+    # Squid refuses with 403, custom deny_info pages included; its failures to
+    # reach or talk TLS to the server are 502, 503 and 504.
+    policy_statuses=frozenset({403}),
 )
 
 # The proxies whose own error responses are recognized (sign S2).
@@ -136,9 +142,12 @@ def detect_interference(
 
     S2 (a proxy error page) is recognized by the proxy's error header, or,
     when the header is absent, by the stock error page title together with
-    an error status (>= 400) or an unknown one. Error codes of a policy
-    denial never count as interference: the administrator meant them, so
-    they must not be bypassed. S3 (a bot challenge) is recognized by its
+    an error status (>= 400) or an unknown one. A policy denial never
+    counts as interference, whether recognized by its error code or by a
+    refusal status (403, which also covers the administrator's own deny
+    pages): the administrator meant it, so it must not be bypassed. A 403
+    from the site itself carries no proxy marker, so it is not affected.
+    S3 (a bot challenge) is recognized by its
     response header. Header names are matched case-insensitively; missing
     headers or HTML are treated as empty.
     """
@@ -146,12 +155,12 @@ def detect_interference(
     for page in PROXY_ERROR_PAGES:
         header_value = lowered.get(page.header, "").strip()
         if header_value:
-            if _error_code(header_value) in page.policy_denials:
+            if _is_policy_denial(page, _error_code(header_value), status_code):
                 return None
             return Interference(InterferenceSign.PROXY_ERROR_PAGE, header_value)
         found = _error_page_by_title(page, html, status_code)
         if found is not None:
-            return found if found.detail not in page.policy_denials else None
+            return None if _is_policy_denial(page, found.detail, status_code) else found
     for name, value in BOT_CHALLENGE_HEADERS:
         header_value = lowered.get(name, "").strip()
         if header_value.lower() == value:
@@ -164,6 +173,11 @@ def _lowercase_headers(headers: Mapping[str, Any] | None) -> dict[str, str]:
     if not headers:
         return {}
     return {str(name).lower(): str(value) for name, value in headers.items() if value is not None}
+
+
+def _is_policy_denial(page: ProxyErrorPage, code: str, status_code: int | None) -> bool:
+    """Tell whether *page*'s error *code* or *status_code* marks a deliberate refusal."""
+    return code in page.policy_denials or status_code in page.policy_statuses
 
 
 def _error_code(header_value: str) -> str:
