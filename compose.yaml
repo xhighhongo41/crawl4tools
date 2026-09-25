@@ -1,8 +1,8 @@
 # crawl4tools server (crawl4server): Open WebUI external web loader + MCP.
 #
 # The image is pulled from Docker Hub; `docker compose up -d` fetches
-# xhighhongo41/crawl4tools:1.0.0b1. To build locally instead, run
-# `docker build -t xhighhongo41/crawl4tools:1.0.0b1 .` first.
+# xhighhongo41/crawl4tools:1.0.0b2. To build locally instead, run
+# `docker build -t xhighhongo41/crawl4tools:1.0.0b2 .` first.
 #
 # Open WebUI: Admin Settings > Web Search > Web Loader Engine = "external",
 # URL = http://<host>:8766/crawl (or http://crawl4tools:8766/crawl when
@@ -17,7 +17,7 @@
 
 services:
   crawl4tools:
-    image: xhighhongo41/crawl4tools:1.0.0b1
+    image: xhighhongo41/crawl4tools:1.0.0b2
     ports:
       - "8766:8766"
       - "8765:8765"

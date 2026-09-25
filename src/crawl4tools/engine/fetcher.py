@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import logging
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager
 from dataclasses import replace
@@ -21,7 +22,12 @@ from types import TracebackType
 from typing import Any, Protocol
 
 from crawl4tools.engine.classify import build_error, classify_error_message, error_for_status
-from crawl4tools.engine.errors import FetchError, NonHtmlContentError
+from crawl4tools.engine.errors import (
+    FetchError,
+    HttpStatusError,
+    NonHtmlContentError,
+    ProxyRefusedError,
+)
 from crawl4tools.engine.interception import InterferenceSign, detect_interference
 from crawl4tools.engine.models import (
     ContentKind,
@@ -39,8 +45,10 @@ from crawl4tools.engine.probe import (
     default_http_client,
     probe,
 )
-from crawl4tools.engine.proxy import normalize_proxy, should_fallback
+from crawl4tools.engine.proxy import PROXY_REFUSAL_STATUSES, normalize_proxy, should_fallback
 from crawl4tools.i18n import N_
+
+logger = logging.getLogger(__name__)
 
 _PDF_MEDIA_TYPE = "application/pdf"
 _HTML_MEDIA_TYPES = frozenset({"text/html", "application/xhtml+xml"})
@@ -61,6 +69,12 @@ _DOWNLOAD_PATH_FAILURES = frozenset(
 # How much of a downloaded body is decoded to look for a proxy's error page:
 # its title comes first, and the body may be a large file.
 _ERROR_PAGE_SCAN_BYTES = 64 * 1024
+
+# crawl4ai 0.9.4's own anti-bot check (antibot_detector.is_blocked) marks some
+# failed results this way, e.g. "Blocked by anti-bot protection: HTTP 503
+# with HTML content (180 bytes)". See _judge, which turns these back into the
+# HTTP status they report whenever one is available.
+_ANTI_BOT_PREFIX = "Blocked by anti-bot protection"
 
 
 class CrawlerLike(Protocol):
@@ -170,6 +184,13 @@ class Fetcher:
     closed afterwards. The browser is started lazily on the first URL that
     needs it; if starting fails, that failure is remembered and reported
     for every later URL that needs the browser instead of retrying.
+
+    After redirects, a page is judged by its final response. crawl4ai
+    reports the final status (``redirected_status_code``) but only the
+    first response's headers, so the final response's headers are kept by
+    an ``after_goto`` hook registered on the crawler when it starts; when
+    the hook has none for the URL (or its status differs), the first
+    response's headers are used.
     """
 
     def __init__(
@@ -191,6 +212,9 @@ class Fetcher:
         self._crawler_cm: AbstractAsyncContextManager[CrawlerLike] | None = None
         self._crawler: CrawlerLike | None = None
         self._start_error: str | None = None
+        # Final response (status, headers) of each URL, as seen by the after_goto
+        # hook; taken out when the URL's crawl result is judged.
+        self._final_responses: dict[str, tuple[int | None, dict[str, str]]] = {}
 
     @property
     def options(self) -> FetchOptions:
@@ -235,8 +259,49 @@ class Fetcher:
                 else:
                     self._crawler_cm = crawler_cm
                     self._crawler = crawler
+                    self._register_hooks(crawler)
                     return crawler
             raise _StartFailure(self._start_error)
+
+    def _register_hooks(self, crawler: CrawlerLike) -> None:
+        """Register :meth:`_after_goto` on *crawler*'s strategy, if it takes hooks."""
+        strategy = getattr(crawler, "crawler_strategy", None)
+        set_hook = getattr(strategy, "set_hook", None)
+        if not callable(set_hook):
+            return
+        try:
+            set_hook("after_goto", self._after_goto)
+        except Exception:
+            # Without the hook, pages are judged by the first response's headers.
+            logger.debug("could not register the after_goto hook", exc_info=True)
+
+    async def _after_goto(
+        self, page: Any, *, url: str | None = None, response: Any = None, **_kwargs: Any
+    ) -> Any:
+        """crawl4ai ``after_goto`` hook: keep the final response's status and headers.
+
+        *response* is what ``page.goto()`` returned, i.e. the last response of
+        the redirect chain. Returns *page*, as crawl4ai's hooks do.
+        """
+        if response is not None and url:
+            try:
+                status: int | None = getattr(response, "status", None)
+                self._final_responses[url] = (status, dict(response.headers))
+            except Exception:
+                logger.debug("could not keep the final response of %s", url, exc_info=True)
+        return page
+
+    def _take_final_response(self, url: str) -> tuple[int | None, dict[str, str]] | None:
+        """Remove and return the final response the hook kept for *url*, if any.
+
+        The browser may report the URL with or without a trailing slash, so
+        that variant is looked up too.
+        """
+        final = self._final_responses.pop(url, None)
+        if final is not None:
+            return final
+        variant = url[:-1] if url.endswith("/") else f"{url}/"
+        return self._final_responses.pop(variant, None)
 
     async def fetch_many(
         self,
@@ -307,7 +372,10 @@ class Fetcher:
         """Run one probe + browser attempt for *url* through *proxy*.
 
         Returns the outcome and whether a failure may be retried without the
-        proxy (False when the browser itself could not be started).
+        proxy (False when the browser itself could not be started, or when
+        the proxy refused the CONNECT by its own policy, e.g. HTTP 403: the
+        browser is not even started for those, since retrying with a direct
+        connection would defeat the point of using the proxy).
         """
         probed = await probe(
             url,
@@ -315,6 +383,14 @@ class Fetcher:
             timeout_s=options.timeout_s,
             client_factory=self._http_client_factory,
         )
+        if (
+            probed.error_kind is FailureKind.PROXY
+            and probed.proxy_status is not None
+            and probed.proxy_status in PROXY_REFUSAL_STATUSES
+            and proxy is not None
+        ):
+            refused = ProxyRefusedError(url, proxy, probed.proxy_status)
+            return self._failure(url, refused, options), False
         if probed.ok and not probed.is_html and probed.body is not None:
             return await self._resource_outcome(url, probed, options), True
 
@@ -329,6 +405,8 @@ class Fetcher:
         try:
             result = await crawler.arun(url, config=build_run_config(options, proxy))
         except Exception as exc:
+            # The hook may have seen a response before the crawl failed; drop it.
+            self._take_final_response(url)
             detail = _describe(exc)
             error = self._classified_error(url, detail, proxy, options)
             return self._failure(url, error, options), True
@@ -427,9 +505,30 @@ class Fetcher:
     async def _judge(
         self, url: str, proxy: str | None, result: Any, options: FetchOptions
     ) -> FetchOutcome:
-        """Turn a crawl4ai result into an outcome (possibly via an HTTP download)."""
-        status_code: int | None = getattr(result, "status_code", None)
-        headers: Mapping[str, Any] | None = getattr(result, "response_headers", None)
+        """Turn a crawl4ai result into an outcome (possibly via an HTTP download).
+
+        After redirects the final response is judged: its status is
+        crawl4ai's ``redirected_status_code`` (the first response's
+        ``status_code`` when absent), and its headers are those the
+        ``after_goto`` hook kept for *url* with that same status. Otherwise
+        the first response's headers (``response_headers``) are used.
+
+        A failure whose message is crawl4ai's own anti-bot verdict (see
+        ``_ANTI_BOT_PREFIX``) is reported as the HTTP status it names,
+        provided one was actually returned, so it is treated exactly like
+        the same status without that verdict (in particular, it can trigger
+        the direct-connection fallback for 503 like any other HTTP_STATUS
+        failure). Without a usable status it stays a generic failure.
+        """
+        final = self._take_final_response(url)
+        first_status: int | None = getattr(result, "status_code", None)
+        final_status: int | None = getattr(result, "redirected_status_code", None)
+        status_code = final_status if final_status is not None else first_status
+        headers: Mapping[str, Any] | None
+        if final is not None and final[0] == status_code:
+            headers = final[1]
+        else:
+            headers = getattr(result, "response_headers", None)
         html: str | None = getattr(result, "html", None)
         # Checked before success: crawl4ai's own anti-bot check marks a proxy's
         # error page or a challenge (a 403/503 HTML page) as failed, but keeps
@@ -440,6 +539,13 @@ class Fetcher:
 
         if not getattr(result, "success", False):
             detail: str | None = getattr(result, "error_message", None)
+            if (
+                detail is not None
+                and detail.startswith(_ANTI_BOT_PREFIX)
+                and status_code is not None
+                and status_code >= 400
+            ):
+                return self._failure(url, HttpStatusError(url, status_code), options, status_code)
             kind = classify_error_message(detail)
             if kind is FailureKind.NON_HTML:
                 return await self._downloaded_outcome(

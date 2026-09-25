@@ -12,7 +12,7 @@ crawl4tools is a web crawler built on top of the [crawl4ai](https://github.com/u
 
 ## Status
 
-**Beta.** This release (1.0.0b1) is the first beta of crawl4tools, published on [PyPI](https://pypi.org/project/crawl4tools/) and [Docker Hub](https://hub.docker.com/r/xhighhongo41/crawl4tools). It provides the local CLI `crawl4cli`, the MCP server `crawl4mcp`, and the combined Open WebUI web loader + MCP server `crawl4server`, with a Dockerfile and compose file. All three commands can show their messages in English or Japanese. Feedback from real use is welcome on the [Issues page](https://github.com/xhighhongo41/crawl4tools/issues); 1.0.0 will follow once this beta has been tested.
+**Beta.** This release (1.0.0b2) is a beta of crawl4tools, published on [PyPI](https://pypi.org/project/crawl4tools/) and [Docker Hub](https://hub.docker.com/r/xhighhongo41/crawl4tools). It provides the local CLI `crawl4cli`, the MCP server `crawl4mcp`, and the combined Open WebUI web loader + MCP server `crawl4server`, with a Dockerfile and compose file. All three commands can show their messages in English or Japanese. Feedback from real use is welcome on the [Issues page](https://github.com/xhighhongo41/crawl4tools/issues); 1.0.0 will follow once this beta has been tested.
 
 ## Features
 
@@ -77,22 +77,26 @@ crawl4cli -f screenshot https://example.com/      # saves example.com.png
 crawl4cli --proxy http://proxy.local:8080 URL     # through a proxy
 ```
 
-| Option | Meaning |
-|---|---|
-| `-f, --format` | `markdown` (default), `html`, `pdf`, `screenshot`, `mhtml`, or `raw` |
-| `-o, --output FILE` | Save a single URL to FILE instead of stdout |
-| `-d, --output-dir DIR` | Directory for several URLs and binary formats (default: current directory) |
-| `--proxy URL` | `http://`, `https://`, or `socks5://` proxy; credentials as `user:pass@host:port` |
-| `--no-fallback` | Do not retry over a direct connection when the proxy fails |
-| `-j, --concurrency N` | URLs fetched at once (default: 3) |
-| `--timeout SECONDS` | Page load timeout per URL (default: 60) |
-| `--fit` | Keep only the main content (drops menus, footers, and the like); falls back to the full page if nothing is left |
-| `--citations` | Turn links into numbered references listed at the end |
-| `--no-links`, `--no-images` | Drop links or image references from the Markdown |
-| `-q, --quiet` / `-v, --verbose` | Less or more output on stderr |
-| `--lang en\|ja` | Language of messages (default: follows the OS locale; see [Language of messages](#language-of-messages)) |
+Every option can also be set with an environment variable named `CRAWL4CLI_` followed by the option's name in upper case, dashes replaced by underscores; the option always wins over the variable. The standard `HTTP_PROXY`/`HTTPS_PROXY` variables are not used.
 
-Only the document goes to stdout; notes, errors, and the summary go to stderr. File names are derived from the URL (`https://example.com/a/b` → `example.com_a_b.md`). The exit code is 0 when every URL succeeded, 1 when any failed, and 2 for invalid arguments. Every option can also be set with an environment variable named `CRAWL4CLI_<OPTION>`, for example `CRAWL4CLI_PROXY`. The standard `HTTP_PROXY`/`HTTPS_PROXY` variables are not used.
+| Option | Environment variable | Default | Meaning |
+|---|---|---|---|
+| `-f, --format` | `CRAWL4CLI_FORMAT` | `markdown` | `markdown`, `html`, `pdf`, `screenshot`, `mhtml`, or `raw` |
+| `-o, --output FILE` | `CRAWL4CLI_OUTPUT` | *(none, prints to stdout)* | Save a single URL to FILE instead of stdout |
+| `-d, --output-dir DIR` | `CRAWL4CLI_OUTPUT_DIR` | `.` | Directory for several URLs and binary formats |
+| `--proxy URL` | `CRAWL4CLI_PROXY` | *(none)* | `http://`, `https://`, or `socks5://` proxy; credentials as `user:pass@host:port` |
+| `--fallback/--no-fallback` | `CRAWL4CLI_FALLBACK` | `--fallback` (on) | Retry over a direct connection when the proxy itself appears to be at fault |
+| `-j, --concurrency N` | `CRAWL4CLI_CONCURRENCY` | `3` | URLs fetched at once |
+| `--timeout SECONDS` | `CRAWL4CLI_TIMEOUT` | `60` | Page load timeout per URL |
+| `--citations` | `CRAWL4CLI_CITATIONS` | off | Turn links into numbered references listed at the end |
+| `--fit` | `CRAWL4CLI_FIT` | off | Keep only the main content (drops menus, footers, and the like); falls back to the full page if nothing is left |
+| `--no-links` | `CRAWL4CLI_NO_LINKS` | off | Drop links from the Markdown |
+| `--no-images` | `CRAWL4CLI_NO_IMAGES` | off | Drop image references from the Markdown |
+| `-q, --quiet` | `CRAWL4CLI_QUIET` | off | Less output on stderr |
+| `-v, --verbose` | `CRAWL4CLI_VERBOSE` | off | More output on stderr |
+| `--lang en\|ja` | `CRAWL4CLI_LANG` | follows the OS locale | Language of messages (see [Language of messages](#language-of-messages)) |
+
+Only the document goes to stdout; notes, errors, and the summary go to stderr. File names are derived from the URL (`https://example.com/a/b` → `example.com_a_b.md`). The exit code is 0 when every URL succeeded, 1 when any failed, and 2 for invalid arguments.
 
 ## Open WebUI web loader (crawl4server)
 
@@ -120,28 +124,30 @@ Open WebUI posts `{"urls": [...]}` to that URL and gets back a JSON array of `{"
 
 ### Options
 
-| Option | Meaning |
-|---|---|
-| `--host` | Host to listen on, both ports (default: `127.0.0.1`) |
-| `--loader-port` | Web loader port (default: `8766`) |
-| `--loader-path` | HTTP path of the web loader endpoint (default: `/crawl`) |
-| `--loader-api-key KEY` | Require `Authorization: Bearer KEY` on the web loader (Open WebUI's External Web Loader API Key) |
-| `--loader-fit` / `--no-loader-fit` | Keep only the main content of each page (default: off, full-page Markdown) |
-| `--mcp-port` | MCP Streamable HTTP port (default: `8765`) |
-| `--mcp-path` | HTTP path of the MCP endpoint (default: `/mcp`) |
-| `--proxy URL` | `http://`, `https://`, or `socks5://` proxy; credentials as `user:pass@host:port` |
-| `--no-fallback` | Do not retry over a direct connection when the proxy fails |
-| `--timeout SECONDS` | Default per-URL timeout, for web loader requests and MCP tool calls that omit `timeout_s` (default: 60) |
-| `-j, --concurrency N` | Maximum URLs fetched at once across both ports (default: 3) |
-| `--max-urls N` | Maximum URLs accepted per web loader request or MCP tool call; Open WebUI sends up to 20, so keep this at 20 or more (default: 20) |
-| `--download-dir DIR` | Root directory the MCP `download` tool saves files into (default: current directory) |
-| `--config FILE` | YAML or JSON config file (see Configuration below) |
-| `-v, --verbose` | Verbose logging on stderr |
-| `--lang en\|ja` | Language of messages the server produces while running (default: English; see [Language of messages](#language-of-messages)) |
+Settings are resolved in this order: command-line option > `CRAWL4SERVER_*` environment variable (the option's name in upper case, dashes replaced by underscores, e.g. `CRAWL4SERVER_LOADER_API_KEY`) > config file (Config key column below; see [Configuration](#configuration)) > built-in default.
+
+| Option | Environment variable | Config key | Default | Meaning |
+|---|---|---|---|---|
+| `--host` | `CRAWL4SERVER_HOST` | `host` | `127.0.0.1` | Host to listen on, both ports |
+| `--loader-port` | `CRAWL4SERVER_LOADER_PORT` | `loader_port` | `8766` | Web loader port |
+| `--loader-path` | `CRAWL4SERVER_LOADER_PATH` | `loader_path` | `/crawl` | HTTP path of the web loader endpoint |
+| `--loader-api-key KEY` | `CRAWL4SERVER_LOADER_API_KEY` | `loader_api_key` | *(none)* | Require `Authorization: Bearer KEY` on the web loader (Open WebUI's External Web Loader API Key) |
+| `--loader-fit/--no-loader-fit` | `CRAWL4SERVER_LOADER_FIT` | `loader_fit` | `--no-loader-fit` (off) | Keep only the main content of each page; off returns the full page as Markdown |
+| `--mcp-port` | `CRAWL4SERVER_MCP_PORT` | `mcp_port` | `8765` | MCP Streamable HTTP port |
+| `--mcp-path` | `CRAWL4SERVER_MCP_PATH` | `mcp_path` | `/mcp` | HTTP path of the MCP endpoint |
+| `--proxy URL` | `CRAWL4SERVER_PROXY` | `proxy` | *(none)* | `http://`, `https://`, or `socks5://` proxy; credentials as `user:pass@host:port` |
+| `--fallback/--no-fallback` | `CRAWL4SERVER_FALLBACK` | `fallback` | `--fallback` (on) | Retry over a direct connection when the proxy itself appears to be at fault |
+| `--timeout SECONDS` | `CRAWL4SERVER_TIMEOUT` | `timeout` | `60` | Default per-URL timeout, for web loader requests and MCP tool calls that omit `timeout_s` |
+| `-j, --concurrency N` | `CRAWL4SERVER_CONCURRENCY` | `concurrency` | `3` | Maximum URLs fetched at once across both ports |
+| `--max-urls N` | `CRAWL4SERVER_MAX_URLS` | `max_urls` | `20` | Maximum URLs accepted per web loader request or MCP tool call; Open WebUI sends up to 20, so keep this at 20 or more |
+| `--download-dir DIR` | `CRAWL4SERVER_DOWNLOAD_DIR` | `download_dir` | `.` | Root directory the MCP `download` tool saves files into |
+| `-v, --verbose` | `CRAWL4SERVER_VERBOSE` | `verbose` | off | Verbose logging on stderr |
+| `--lang en\|ja` | `CRAWL4SERVER_LANG` | `lang` | `en` | Language of messages the server produces while running (see [Language of messages](#language-of-messages)) |
+| `--config FILE` | `CRAWL4SERVER_CONFIG` | — | *(none)* | YAML or JSON config file (see [Configuration](#configuration) below) |
 
 ### Configuration
 
-Settings are resolved in this order: command-line options > `CRAWL4SERVER_*` environment variables (for example `CRAWL4SERVER_LOADER_API_KEY`) > config file (`--config` or `CRAWL4SERVER_CONFIG`) > built-in defaults. Config file keys are the same option names in snake_case:
+The config file is YAML or JSON, at any path; point `--config` or `CRAWL4SERVER_CONFIG` at it. Its keys are the Config key column above; a key outside that set is an error. A relative path value (such as `download_dir`) is resolved from the directory the server is started in.
 
 ```yaml
 host: 0.0.0.0
@@ -151,6 +157,20 @@ mcp_port: 8765
 max_urls: 20
 concurrency: 3
 lang: ja
+```
+
+The same file as JSON:
+
+```json
+{
+  "host": "0.0.0.0",
+  "loader_port": 8766,
+  "loader_api_key": "change-me",
+  "mcp_port": 8765,
+  "max_urls": 20,
+  "concurrency": 3,
+  "lang": "ja"
+}
 ```
 
 ### Docker
@@ -165,9 +185,65 @@ docker compose up -d
 curl http://localhost:8766/health
 ```
 
-Without compose, the same image can be pulled directly: `docker pull xhighhongo41/crawl4tools:1.0.0b1`. Beta versions are not tagged `latest`, so always use the version tag. To build the image locally instead of pulling it, run `docker build -t xhighhongo41/crawl4tools:1.0.0b1 .` and then `docker compose up -d`.
+Without compose, the same image can be pulled directly: `docker pull xhighhongo41/crawl4tools:1.0.0b2`. Beta versions are not tagged `latest`, so always use the version tag. To build the image locally instead of pulling it, run `docker build -t xhighhongo41/crawl4tools:1.0.0b2 .` and then `docker compose up -d`.
 
-Set `CRAWL4SERVER_LOADER_API_KEY` in `compose.yaml`'s `environment` section. The container runs as uid 1000, so `downloads/` must be writable by it; `shm_size: 1gb` is set for Chromium. When Open WebUI runs in the same compose project, point it at `http://crawl4tools:8766/crawl` instead of `localhost`. Stopping the container (`docker stop`, or `docker compose down`) lets requests already in progress finish, for up to 5 seconds, before closing the remaining connections.
+The compose file itself:
+
+<!-- compose.yaml -->
+```yaml
+# crawl4tools server (crawl4server): Open WebUI external web loader + MCP.
+#
+# The image is pulled from Docker Hub; `docker compose up -d` fetches
+# xhighhongo41/crawl4tools:1.0.0b2. To build locally instead, run
+# `docker build -t xhighhongo41/crawl4tools:1.0.0b2 .` first.
+#
+# Open WebUI: Admin Settings > Web Search > Web Loader Engine = "external",
+# URL = http://<host>:8766/crawl (or http://crawl4tools:8766/crawl when
+# Open WebUI runs in this same compose project), API key = the value set
+# for CRAWL4SERVER_LOADER_API_KEY below.
+#
+# MCP (Streamable HTTP): http://<host>:8765/mcp — this endpoint has no
+# authentication, so do not publish port 8765 beyond a trusted network.
+#
+# Before first run: mkdir -p downloads (must be writable by uid 1000, the
+# "crawl" user the container runs as).
+
+services:
+  crawl4tools:
+    image: xhighhongo41/crawl4tools:1.0.0b2
+    ports:
+      - "8766:8766"
+      - "8765:8765"
+    environment:
+      # Every crawl4server CLI option also reads an env var named
+      # CRAWL4SERVER_<OPTION_UPPER_SNAKE>; CRAWL4SERVER_HOST below mirrors
+      # the --host already passed in the Dockerfile's CMD, kept here as a
+      # harmless, real example of the naming scheme.
+      CRAWL4SERVER_HOST: "0.0.0.0"
+      # CRAWL4SERVER_LOADER_API_KEY: change-me
+      # CRAWL4SERVER_PROXY: socks5://host:1080
+      # CRAWL4SERVER_CONCURRENCY: "3"
+      # CRAWL4SERVER_MAX_URLS: "20"
+      # CRAWL4SERVER_TIMEOUT: "60"
+      # CRAWL4SERVER_LANG: ja
+    volumes:
+      # Host directory for downloaded/converted output; create it first
+      # (mkdir -p downloads) and make sure uid 1000 can write to it.
+      - ./downloads:/data/downloads
+    # Chromium needs more than Docker's default 64m /dev/shm to avoid
+    # crashing on larger pages.
+    shm_size: "1gb"
+    restart: unless-stopped
+```
+
+- `image`: the published Docker Hub image at this release's tag (`xhighhongo41/crawl4tools:1.0.0b2`); to use a local build instead, run the `docker build` command above first, then `docker compose up -d`.
+- `ports`: `8766` is the Open WebUI web loader, `8765` is MCP; to publish only one of them, delete the other line (or bind a port to `127.0.0.1` only, e.g. `"127.0.0.1:8765:8765"`, to keep it off the network entirely).
+- `environment`: uncomment a line to set it. Set `CRAWL4SERVER_LOADER_API_KEY` here to the value configured as Open WebUI's External Web Loader API Key. See the Options table above for every other `CRAWL4SERVER_*` variable.
+- `volumes`: create the host `downloads/` directory first (`mkdir -p downloads`, done above) and make sure it is writable by uid 1000, the user the container runs as.
+- `shm_size`: Chromium needs more than Docker's default 64 MB of `/dev/shm` to avoid crashing on larger pages.
+- `restart`: `unless-stopped` restarts the container after a crash or a host reboot, but not after an explicit `docker compose down`.
+
+When Open WebUI runs in the same compose project, point it at `http://crawl4tools:8766/crawl` instead of `localhost`. Stopping the container (`docker stop`, or `docker compose down`) lets requests already in progress finish, for up to 5 seconds, before closing the remaining connections.
 
 ### Security
 
@@ -192,7 +268,7 @@ crawl4mcp --transport http
 claude mcp add --transport http crawl4tools http://127.0.0.1:8765/mcp
 ```
 
-For Claude Desktop, add an entry to `claude_desktop_config.json`:
+For Claude Desktop, edit its config file (macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`; Windows: `%APPDATA%\Claude\claude_desktop_config.json`) and add an entry under `mcpServers` (if the file already lists other servers there, add this one as another key, separated by a comma); restart Claude Desktop afterwards:
 
 ```json
 {
@@ -224,31 +300,33 @@ Other clients that support the Streamable HTTP transport (for example Open WebUI
 
 When a call covers several URLs, each result starts with a `<!-- crawl4tools: url=... status=... -->` line; a URL that failed is reported as an `error: ...` line instead, and the call only fails when every URL fails. A proxy fallback or other remark about a result appears as a `<!-- note: ... -->` line. `download` overwrites files that already exist at the destination.
 
+Over HTTP (`--transport http` or `crawl4server`), each file `download` saves also gets a `file_url`, served at `/files/<token>` on the same port; fetch it to your own machine with, for example, `curl -o <name> <file_url>` — its content never passes through the conversation. Over stdio, the server runs on the same machine as the client, so the returned path can be used as is. A `file_url` stops working once the server restarts (the token is forgotten), though the file itself is left in place.
+
+`fetch`'s structured result also carries the page text at `pages[i].text`, alongside the same text in the `content` block; a client that reads `structuredContent` instead of `content` (Claude Code does) still gets it. Claude Code moves an MCP result to a file once it is larger than 25,000 tokens (`MAX_MCP_OUTPUT_TOKENS`); for a long page, `download` avoids that round trip.
+
 ### Options
 
-| Option | Meaning |
-|---|---|
-| `--transport` | `stdio` (default) or `http` |
-| `--host` | Host to listen on (http transport only; default: `127.0.0.1`) |
-| `--port` | Port to listen on (http transport only; default: `8765`) |
-| `--path` | HTTP path for the MCP endpoint (http transport only; default: `/mcp`) |
-| `--proxy URL` | `http://`, `https://`, or `socks5://` proxy; credentials as `user:pass@host:port` |
-| `--no-fallback` | Do not retry over a direct connection when the proxy fails |
-| `--timeout SECONDS` | Default per-URL timeout, used when a tool call omits `timeout_s` (default: 60) |
-| `-j, --concurrency N` | Maximum URLs fetched at once across every tool call (default: 3) |
-| `--max-urls N` | Maximum URLs accepted in a single tool call (default: 20) |
-| `--download-dir DIR` | Root directory the `download` tool saves files into (default: current directory) |
-| `--config FILE` | YAML or JSON config file (see Configuration below) |
-| `-v, --verbose` | Verbose logging on stderr |
-| `--lang en\|ja` | Language of messages the server produces while running (default: English; see [Language of messages](#language-of-messages)) |
+Settings are resolved in this order: command-line option > `CRAWL4MCP_*` environment variable (the option's name in upper case, dashes replaced by underscores, e.g. `CRAWL4MCP_MAX_URLS`) > config file (Config key column below; see [Configuration](#configuration-1)) > built-in default.
+
+| Option | Environment variable | Config key | Default | Meaning |
+|---|---|---|---|---|
+| `--transport` | `CRAWL4MCP_TRANSPORT` | `transport` | `stdio` | `stdio` or `http` |
+| `--host` | `CRAWL4MCP_HOST` | `host` | `127.0.0.1` | Host to listen on (http transport only) |
+| `--port` | `CRAWL4MCP_PORT` | `port` | `8765` | Port to listen on (http transport only) |
+| `--path` | `CRAWL4MCP_PATH` | `path` | `/mcp` | HTTP path for the MCP endpoint (http transport only) |
+| `--proxy URL` | `CRAWL4MCP_PROXY` | `proxy` | *(none)* | `http://`, `https://`, or `socks5://` proxy; credentials as `user:pass@host:port` |
+| `--fallback/--no-fallback` | `CRAWL4MCP_FALLBACK` | `fallback` | `--fallback` (on) | Retry over a direct connection when the proxy itself appears to be at fault |
+| `--timeout SECONDS` | `CRAWL4MCP_TIMEOUT` | `timeout` | `60` | Default per-URL timeout, used when a tool call omits `timeout_s` |
+| `-j, --concurrency N` | `CRAWL4MCP_CONCURRENCY` | `concurrency` | `3` | Maximum URLs fetched at once across every tool call |
+| `--max-urls N` | `CRAWL4MCP_MAX_URLS` | `max_urls` | `20` | Maximum URLs accepted in a single tool call |
+| `--download-dir DIR` | `CRAWL4MCP_DOWNLOAD_DIR` | `download_dir` | `.` | Root directory the `download` tool saves files into |
+| `-v, --verbose` | `CRAWL4MCP_VERBOSE` | `verbose` | off | Verbose logging on stderr |
+| `--lang en\|ja` | `CRAWL4MCP_LANG` | `lang` | `en` | Language of messages the server produces while running (see [Language of messages](#language-of-messages)) |
+| `--config FILE` | `CRAWL4MCP_CONFIG` | — | *(none)* | YAML or JSON config file (see [Configuration](#configuration-1) below) |
 
 ### Configuration
 
-Settings are resolved in this order: command-line options > `CRAWL4MCP_*` environment variables > config file > built-in defaults.
-
-Every option can be set with an environment variable named `CRAWL4MCP_` followed by the option's name in upper case with dashes replaced by underscores — for example `CRAWL4MCP_MAX_URLS` for `--max-urls`, or `CRAWL4MCP_CONCURRENCY` for `--concurrency`. `CRAWL4MCP_CONFIG` points to the config file itself, same as `--config`.
-
-The config file is YAML (JSON also works, since JSON is valid YAML), with the same option names as keys, using underscores instead of dashes; unknown keys are an error:
+The config file is YAML or JSON, at any path; point `--config` or `CRAWL4MCP_CONFIG` at it. Its keys are the Config key column above; a key outside that set is an error. A relative path value (such as `download_dir`) is resolved from the directory the server is started in.
 
 ```yaml
 transport: http
@@ -261,11 +339,26 @@ proxy: http://proxy.local:8080
 lang: ja
 ```
 
-Relative paths in the config file (such as `download_dir`) are resolved from the current directory the server is started in.
+The same file as JSON:
+
+```json
+{
+  "transport": "http",
+  "host": "127.0.0.1",
+  "port": 8765,
+  "max_urls": 50,
+  "concurrency": 5,
+  "download_dir": "./downloads",
+  "proxy": "http://proxy.local:8080",
+  "lang": "ja"
+}
+```
 
 ### Security
 
 The Streamable HTTP transport has no authentication. By default the server listens on `127.0.0.1` only; if you bind it to another host, anyone who can reach that port can use the server, and `crawl4mcp` prints a warning to stderr when it starts. In stdio mode, stdout is reserved for the MCP protocol — all logging goes to stderr.
+
+`/files/<token>` (see [Tools](#tools) above) serves the files `download` has saved, on the same port as MCP. The token is an unguessable random value, but the port itself still has no authentication — do not expose the MCP port beyond a trusted network.
 
 ## Language of messages
 

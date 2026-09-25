@@ -8,6 +8,23 @@ Pre-release versions are written in PEP 440 form (for example 1.0.0b1).
 
 ## [Unreleased]
 
+## [1.0.0b2] - 2026-09-26
+
+### Added
+
+- The `download` MCP tool returns a `file_url` for each saved file when the server is used over HTTP, served at `GET /files/<token>` on the MCP port, so an agent can fetch the file to its own machine
+
+### Changed
+
+- README: tables of options, environment variables and config keys for all three commands, the full `compose.yaml` with explanations, JSON examples of the config files and Claude Desktop setup
+
+### Fixed
+
+- The `fetch` MCP tool's page text now also appears in the structured result (`pages[i].text`), so clients that prefer `structuredContent` over `content` (such as Claude Code) receive it
+- After redirects, the status code, headers and (for the web loader's `status_code`) the reported status are those of the final response, so a redirect to an error page is reported as that error instead of a success
+- A 4xx/5xx page that crawl4ai's anti-bot check rejects is reported as an HTTP status error (`HTTP 503 ...`) and, for 503 through a proxy, retried with a direct connection
+- A proxy that refuses an HTTPS `CONNECT` with 403 is reported as a proxy refusal and no longer bypassed with a direct connection
+
 ## [1.0.0b1] - 2026-09-25
 
 ### Added
@@ -83,7 +100,8 @@ Pre-release versions are written in PEP 440 form (for example 1.0.0b1).
 
 No code is included in this release.
 
-[Unreleased]: https://github.com/xhighhongo41/crawl4tools/compare/v1.0.0b1...HEAD
+[Unreleased]: https://github.com/xhighhongo41/crawl4tools/compare/v1.0.0b2...HEAD
+[1.0.0b2]: https://github.com/xhighhongo41/crawl4tools/compare/v1.0.0b1...v1.0.0b2
 [1.0.0b1]: https://github.com/xhighhongo41/crawl4tools/compare/v0.4.0...v1.0.0b1
 [0.4.0]: https://github.com/xhighhongo41/crawl4tools/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/xhighhongo41/crawl4tools/compare/v0.2.0...v0.3.0

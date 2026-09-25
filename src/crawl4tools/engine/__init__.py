@@ -13,6 +13,7 @@ from crawl4tools.engine.errors import (
     NameResolutionError,
     NonHtmlContentError,
     ProxyFetchError,
+    ProxyRefusedError,
     TlsFetchError,
 )
 from crawl4tools.engine.fetcher import (
@@ -78,6 +79,7 @@ __all__ = [
     "PdfConversionError",
     "ProbeResult",
     "ProxyFetchError",
+    "ProxyRefusedError",
     "ProxyUrlError",
     "TlsFetchError",
     "build_error",

@@ -7,7 +7,7 @@ server code lives here.
 
 The formatting functions take the :data:`~crawl4tools.i18n.Translator` of
 the server's language. Only the messages are translated: the ``note:`` /
-``saved:`` / ``error:`` prefixes, the ``<!-- crawl4tools: ... -->`` header
+``saved:`` / ``file:`` / ``error:`` prefixes, the ``<!-- crawl4tools: ... -->`` header
 and the keys of the structured data stay in English.
 """
 
@@ -186,7 +186,12 @@ def page_blocks(
 def page_meta(outcome: FetchOutcome, url: str, t: Translator) -> dict[str, object]:
     """Return the structured metadata for one URL's outcome.
 
-    The ``error`` and ``notes`` values are translated by *t*; the keys are not.
+    ``text`` duplicates the body :func:`page_blocks` puts in the text
+    content block (without the header/note lines), so that MCP clients that
+    only look at ``structuredContent`` still get the page's text; it is None
+    for failures and for outcomes without a text payload (images,
+    screenshots, other binary content). The ``error`` and ``notes`` values
+    are translated by *t*; the keys are not.
     """
     return {
         "url": url,
@@ -196,6 +201,7 @@ def page_meta(outcome: FetchOutcome, url: str, t: Translator) -> dict[str, objec
         "status_code": outcome.status_code,
         "content_kind": str(outcome.content_kind),
         "content_type": outcome.content_type,
+        "text": outcome.text if outcome.ok and outcome.text is not None else None,
         "chars": len(outcome.text) if outcome.text is not None else None,
         "bytes": len(outcome.data) if outcome.data is not None else None,
         "error": outcome.error.render(t) if outcome.error is not None else None,
@@ -204,7 +210,13 @@ def page_meta(outcome: FetchOutcome, url: str, t: Translator) -> dict[str, objec
 
 
 def download_record(
-    outcome: FetchOutcome, url: str, path: Path | None, t: Translator, error: str | None = None
+    outcome: FetchOutcome,
+    url: str,
+    path: Path | None,
+    t: Translator,
+    error: str | None = None,
+    *,
+    file_url: str | None = None,
 ) -> dict[str, object]:
     """Return the structured record for one URL's download attempt.
 
@@ -212,7 +224,8 @@ def download_record(
     written. *error* overrides ``outcome.error`` when the failure happened
     while writing the file (rather than while fetching); it is a message
     the caller has already translated. ``outcome.error`` and the notes are
-    translated by *t*.
+    translated by *t*. *file_url* is the URL to fetch the saved file from
+    over HTTP; it is kept only when the file was saved.
     """
     ok = outcome.ok and path is not None and error is None
     payload_bytes: int | None = None
@@ -234,6 +247,7 @@ def download_record(
         "status_code": outcome.status_code,
         "error": resolved_error,
         "notes": [note.render(t) for note in outcome.notes],
+        "file_url": file_url if ok else None,
     }
 
 
@@ -241,8 +255,10 @@ def download_lines(record: dict[str, object], t: Translator) -> list[str]:
     """Render a download record from :func:`download_record` as report lines.
 
     The notes and the error come from *record*, already translated; the
-    ``saved:`` details and the fallback error are translated by *t*. The
-    ``note:`` / ``saved:`` / ``error:`` prefixes stay in English.
+    ``saved:`` details and the fallback error are translated by *t*. A
+    ``file:`` line with the record's ``file_url``, if any, follows the
+    ``saved:`` line. The ``note:`` / ``saved:`` / ``file:`` / ``error:``
+    prefixes stay in English.
     """
     url = record["url"]
     notes = cast("list[str]", record["notes"])
@@ -252,6 +268,9 @@ def download_lines(record: dict[str, object], t: Translator) -> list[str]:
             url=url, path=record["path"], size=record["bytes"]
         )
         lines.append(f"saved: {saved}")
+        file_url = record.get("file_url")
+        if file_url:
+            lines.append(f"file: {file_url}")
     else:
         error = record["error"] or t.gettext("fetch failed: {url}").format(url=url)
         lines.append(f"error: {error}")

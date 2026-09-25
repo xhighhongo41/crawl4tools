@@ -11,11 +11,21 @@ in one process (e.g. crawl4server's MCP and web loader apps) can share one
 fetcher and one semaphore: pass it to :func:`build_server` as ``state``
 and call :func:`fetch_all` with it directly.
 
+The files saved by ``download`` are registered in the state's
+:class:`~crawl4tools.server.files.FileRegistry`, and the server's HTTP app
+serves them at ``/files/{token}``: over HTTP, each saved file comes with a
+``file_url`` the client can fetch it from.
+
 Every text the server shows its clients (the instructions, the tool titles
 and descriptions, the parameter descriptions, notes and errors) is in the
-language of ``settings.lang``; the ``note:`` / ``saved:`` / ``error:`` /
-``done:`` prefixes, the ``<!-- crawl4tools: ... -->`` header and the keys
-of the structured data stay in English. Logs are always in English.
+language of ``settings.lang``; the ``note:`` / ``saved:`` / ``file:`` /
+``error:`` / ``done:`` prefixes, the ``<!-- crawl4tools: ... -->`` header
+and the keys of the structured data stay in English. Logs are always in
+English.
+
+``fetch``'s ``structured_content["pages"][i]["text"]`` duplicates the body
+of the matching ``content`` block, since some MCP clients drop the
+``content`` text blocks when ``structuredContent`` is present.
 """
 
 # No ``from __future__ import annotations`` in this module: the parameter
@@ -42,6 +52,7 @@ from crawl4tools.engine.fetcher import Fetcher
 from crawl4tools.engine.models import FetchOptions, FetchOutcome, OutputFormat
 from crawl4tools.engine.naming import NameAllocator, filename_for
 from crawl4tools.i18n import Translator, render_exception
+from crawl4tools.server.files import FILES_PATH, FileRegistry, file_url_base, files_route
 from crawl4tools.server.results import (
     check_urls,
     download_lines,
@@ -77,6 +88,7 @@ class ServerState:
     fetcher: Fetcher
     semaphore: asyncio.Semaphore
     settings: ServerSettings
+    files: FileRegistry
 
 
 @dataclass(frozen=True)
@@ -137,6 +149,8 @@ def _instructions(settings: ServerSettings, t: Translator) -> str:
         "screenshot. "
         "`download` saves files in any format (including PDF, MHTML, and the raw "
         "source) into a directory on the server and returns their paths. "
+        "Over HTTP, `download` also returns a `file_url` per file to fetch it from the "
+        "server (e.g. with curl). "
         "PDFs are transcribed to Markdown. Duplicate URLs are fetched once. "
         "At most {max_urls} URLs per call."
     ).format(max_urls=settings.max_urls)
@@ -203,16 +217,22 @@ def _note_lines(
 
 @asynccontextmanager
 async def open_state(
-    settings: ServerSettings, fetcher_factory: FetcherFactory = Fetcher
+    settings: ServerSettings,
+    fetcher_factory: FetcherFactory = Fetcher,
+    *,
+    files: FileRegistry | None = None,
 ) -> AsyncIterator[ServerState]:
     """Open the fetcher and semaphore shared by every fetch for *settings*.
 
     The :class:`Fetcher` built by *fetcher_factory* from the server-wide
     fetch options is closed when the context exits. The semaphore allows
-    ``settings.concurrency`` URLs in flight at once.
+    ``settings.concurrency`` URLs in flight at once. The saved files are
+    registered in *files*, or in a new :class:`FileRegistry` of
+    ``settings.download_root`` when it is None.
     """
+    registry = files if files is not None else FileRegistry(settings.download_root)
     async with fetcher_factory(settings.fetch_options()) as fetcher:
-        yield ServerState(fetcher, asyncio.Semaphore(settings.concurrency), settings)
+        yield ServerState(fetcher, asyncio.Semaphore(settings.concurrency), settings, registry)
 
 
 async def fetch_all(
@@ -277,18 +297,24 @@ def build_server(
     creates nor closes a fetcher; *fetcher_factory* is then ignored and the
     caller owns the state's lifetime.
 
+    The server's HTTP app serves the saved files at ``GET /files/{token}``
+    from the :class:`FileRegistry` of *state*, or, without *state*, from
+    one registry created here and shared by every lifespan (an HTTP server
+    runs one per session).
+
     The texts sent to the clients are translated by ``settings.translator``
     once, when the server is built.
     """
     t = settings.translator
     descriptions = _parameter_descriptions(t)
+    registry = state.files if state is not None else FileRegistry(settings.download_root)
 
     @asynccontextmanager
     async def lifespan(_server: MCPServer[ServerState]) -> AsyncIterator[ServerState]:
         if state is not None:
             yield state
             return
-        async with open_state(settings, fetcher_factory) as opened:
+        async with open_state(settings, fetcher_factory, files=registry) as opened:
             yield opened
 
     server: MCPServer[ServerState] = MCPServer(
@@ -297,6 +323,7 @@ def build_server(
         version=__version__,
         lifespan=lifespan,
     )
+    server.custom_route(FILES_PATH, methods=["GET"])(files_route(registry, t))
 
     @server.tool(
         name="fetch",
@@ -359,7 +386,10 @@ def build_server(
             "PDF, PNG screenshot, MHTML, and the raw source. PDFs are transcribed to "
             "Markdown unless format is 'raw'; non-web content (images, archives, ...) is "
             "saved as served. Existing files are overwritten. The call fails only if no "
-            "file was saved."
+            "file was saved. When the server is reached over HTTP, each saved file also has a "
+            "`file_url`; fetch it (for example `curl -o <name> <file_url>`) to save the file "
+            "on your own machine without passing its content through the conversation. Over "
+            "stdio the server runs on your machine, so the returned paths are local."
         ),
         annotations=ToolAnnotations(
             read_only_hint=False,
@@ -397,7 +427,10 @@ def build_server(
         except ValueError as exc:
             raise ToolError(render_exception(exc, t)) from exc
         notes = _note_lines(settings, duplicates, timeout_s, t)
-        outcomes = await _fetch_all(_state(ctx), ctx, unique, options)
+        server_state = _state(ctx)
+        outcomes = await _fetch_all(server_state, ctx, unique, options)
+        # Over stdio there is no HTTP request, hence no base URL and no file_url.
+        base = file_url_base(getattr(ctx.request_context, "request", None))
 
         try:
             target_dir.mkdir(parents=True, exist_ok=True)
@@ -422,7 +455,9 @@ def build_server(
                 )
                 records.append(download_record(outcome, url, None, t, error=error))
             else:
-                records.append(download_record(outcome, url, path, t))
+                token = server_state.files.register(path)
+                file_url = f"{base}/files/{token}" if base else None
+                records.append(download_record(outcome, url, path, t, file_url=file_url))
 
         saved = sum(1 for record in records if record["ok"])
         lines = list(notes)

@@ -20,6 +20,13 @@ SUPPORTED_SCHEMES = ("http", "https", "socks5")
 # problem, and are therefore worth retrying without the proxy.
 FALLBACK_STATUS_CODES = frozenset({407, 502, 503, 504})
 
+# HTTP status codes a proxy can answer a CONNECT with that mean it refused the
+# destination by policy, rather than being unable to reach it. These are
+# never retried without the proxy: bypassing a deliberate refusal with a
+# direct connection would defeat the point of using the proxy. 407 (missing
+# credentials) and 5xx (a broken proxy) keep using FALLBACK_STATUS_CODES.
+PROXY_REFUSAL_STATUSES = frozenset({403})
+
 # Failure kinds that are worth retrying without the configured proxy. TLS and
 # BLOCKED are how a proxy that intercepts TLS breaks a fetch (see
 # crawl4tools.engine.interception).

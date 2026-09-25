@@ -7,6 +7,7 @@ from crawl4tools.engine.errors import (
     NameResolutionError,
     NonHtmlContentError,
     ProxyFetchError,
+    ProxyRefusedError,
 )
 from crawl4tools.engine.models import FailureKind
 
@@ -86,6 +87,22 @@ def test_proxy_fetch_error_never_leaks_credentials_via_repr() -> None:
     assert error.proxy == "http://***@proxy.example:8080"
 
 
+def test_proxy_refused_error_redacts_credentials() -> None:
+    error = ProxyRefusedError(URL, "http://user:s3cr3t@proxy.example:8080", 403)
+    assert error.kind is FailureKind.PROXY
+    assert error.status == 403
+    message = str(error)
+    assert "s3cr3t" not in message
+    assert "user" not in message
+    assert message == (
+        f"proxy refused the connection (http://***@proxy.example:8080, HTTP 403): {URL}"
+    )
+
+
+def test_proxy_refused_error_is_a_proxy_fetch_error() -> None:
+    assert issubclass(ProxyRefusedError, ProxyFetchError)
+
+
 def test_browser_not_installed_error_has_no_url() -> None:
     error = BrowserNotInstalledError(URL)
     assert error.kind is FailureKind.BROWSER_NOT_INSTALLED
@@ -108,6 +125,7 @@ def test_all_errors_are_fetch_errors() -> None:
         ConnectionRefusedFetchError,
         FetchTimeoutError,
         ProxyFetchError,
+        ProxyRefusedError,
         BrowserNotInstalledError,
         NonHtmlContentError,
     ):
