@@ -8,6 +8,8 @@ Pre-release versions are written in PEP 440 form (for example 1.0.0b1).
 
 ## [Unreleased]
 
+## [1.0.0b2] - 2026-09-26
+
 ### Added
 
 - The `download` MCP tool returns a `file_url` for each saved file when the server is used over HTTP, served at `GET /files/<token>` on the MCP port, so an agent can fetch the file to its own machine
@@ -98,7 +100,8 @@ Pre-release versions are written in PEP 440 form (for example 1.0.0b1).
 
 No code is included in this release.
 
-[Unreleased]: https://github.com/xhighhongo41/crawl4tools/compare/v1.0.0b1...HEAD
+[Unreleased]: https://github.com/xhighhongo41/crawl4tools/compare/v1.0.0b2...HEAD
+[1.0.0b2]: https://github.com/xhighhongo41/crawl4tools/compare/v1.0.0b1...v1.0.0b2
 [1.0.0b1]: https://github.com/xhighhongo41/crawl4tools/compare/v0.4.0...v1.0.0b1
 [0.4.0]: https://github.com/xhighhongo41/crawl4tools/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/xhighhongo41/crawl4tools/compare/v0.2.0...v0.3.0
