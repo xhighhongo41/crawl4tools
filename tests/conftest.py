@@ -26,7 +26,13 @@ _DEFAULT_HTML = "<html><body><h1>Hello</h1></body></html>"
 
 
 def make_result(**overrides: Any) -> SimpleNamespace:
-    """Return a fake crawl4ai ``CrawlResult`` with every field defaulted."""
+    """Return a fake crawl4ai ``CrawlResult`` with every field defaulted.
+
+    ``final_response=(status, headers)`` is not a ``CrawlResult`` field: it is
+    the last response of the redirect chain, which ``FakeCrawler.arun`` hands
+    to the registered ``after_goto`` hook the way crawl4ai does. Without it
+    the hook is not called.
+    """
     markdown = SimpleNamespace(
         raw_markdown=overrides.pop("raw_markdown", "# Hello"),
         markdown_with_citations=overrides.pop("markdown_with_citations", "# Hello [1]"),
@@ -39,6 +45,7 @@ def make_result(**overrides: Any) -> SimpleNamespace:
         "status_code": 200,
         "url": "https://example.com/",
         "redirected_url": None,
+        "redirected_status_code": None,
         "html": _DEFAULT_HTML,
         "markdown": markdown,
         "metadata": {"title": "Example Domain"},
@@ -55,12 +62,25 @@ def make_result(**overrides: Any) -> SimpleNamespace:
 ArunHandler = Callable[[str, Any], Any]
 
 
+class FakeStrategy:
+    """A stand-in for crawl4ai's crawler strategy that records the hooks set on it."""
+
+    def __init__(self) -> None:
+        self.hooks: dict[str, Any] = {}
+
+    def set_hook(self, hook_type: str, hook: Any) -> None:
+        """Register *hook* for *hook_type*, replacing any earlier one."""
+        self.hooks[hook_type] = hook
+
+
 class FakeCrawler:
     """A stand-in for ``AsyncWebCrawler`` with a programmable ``arun``.
 
     ``handler`` may be a callable ``(url, config) -> result``, a mapping from
     URL to result, or a single result returned for every URL. A handler
-    value that is an exception instance is raised from ``arun``.
+    value that is an exception instance is raised from ``arun``. A result
+    with a ``final_response`` (see :func:`make_result`) is first passed to
+    the ``after_goto`` hook registered on ``crawler_strategy``, if any.
     """
 
     def __init__(
@@ -79,6 +99,7 @@ class FakeCrawler:
         self.exited = 0
         self.in_flight = 0
         self.max_in_flight = 0
+        self.crawler_strategy = FakeStrategy()
 
     def factory(self, options: FetchOptions) -> FakeCrawler:
         """Crawler factory compatible with ``Fetcher(crawler_factory=...)``."""
@@ -128,7 +149,20 @@ class FakeCrawler:
             self.in_flight -= 1
         if isinstance(result, BaseException):
             raise result
+        await self._run_after_goto(url, config, result)
         return result
+
+    async def _run_after_goto(self, url: str, config: Any, result: Any) -> None:
+        """Call the ``after_goto`` hook with the result's final response, as crawl4ai does."""
+        final_response = getattr(result, "final_response", None)
+        strategy = getattr(self, "crawler_strategy", None)
+        hooks: Mapping[str, Any] = getattr(strategy, "hooks", {})
+        hook = hooks.get("after_goto")
+        if final_response is None or hook is None:
+            return
+        status, headers = final_response
+        response = SimpleNamespace(status=status, headers=headers)
+        await hook(None, context=None, url=url, response=response, config=config)
 
 
 HttpHandler = Callable[[httpx.Request], httpx.Response]

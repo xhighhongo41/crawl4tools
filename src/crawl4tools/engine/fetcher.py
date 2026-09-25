@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import logging
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager
 from dataclasses import replace
@@ -41,6 +42,8 @@ from crawl4tools.engine.probe import (
 )
 from crawl4tools.engine.proxy import normalize_proxy, should_fallback
 from crawl4tools.i18n import N_
+
+logger = logging.getLogger(__name__)
 
 _PDF_MEDIA_TYPE = "application/pdf"
 _HTML_MEDIA_TYPES = frozenset({"text/html", "application/xhtml+xml"})
@@ -170,6 +173,13 @@ class Fetcher:
     closed afterwards. The browser is started lazily on the first URL that
     needs it; if starting fails, that failure is remembered and reported
     for every later URL that needs the browser instead of retrying.
+
+    After redirects, a page is judged by its final response. crawl4ai
+    reports the final status (``redirected_status_code``) but only the
+    first response's headers, so the final response's headers are kept by
+    an ``after_goto`` hook registered on the crawler when it starts; when
+    the hook has none for the URL (or its status differs), the first
+    response's headers are used.
     """
 
     def __init__(
@@ -191,6 +201,9 @@ class Fetcher:
         self._crawler_cm: AbstractAsyncContextManager[CrawlerLike] | None = None
         self._crawler: CrawlerLike | None = None
         self._start_error: str | None = None
+        # Final response (status, headers) of each URL, as seen by the after_goto
+        # hook; taken out when the URL's crawl result is judged.
+        self._final_responses: dict[str, tuple[int | None, dict[str, str]]] = {}
 
     @property
     def options(self) -> FetchOptions:
@@ -235,8 +248,49 @@ class Fetcher:
                 else:
                     self._crawler_cm = crawler_cm
                     self._crawler = crawler
+                    self._register_hooks(crawler)
                     return crawler
             raise _StartFailure(self._start_error)
+
+    def _register_hooks(self, crawler: CrawlerLike) -> None:
+        """Register :meth:`_after_goto` on *crawler*'s strategy, if it takes hooks."""
+        strategy = getattr(crawler, "crawler_strategy", None)
+        set_hook = getattr(strategy, "set_hook", None)
+        if not callable(set_hook):
+            return
+        try:
+            set_hook("after_goto", self._after_goto)
+        except Exception:
+            # Without the hook, pages are judged by the first response's headers.
+            logger.debug("could not register the after_goto hook", exc_info=True)
+
+    async def _after_goto(
+        self, page: Any, *, url: str | None = None, response: Any = None, **_kwargs: Any
+    ) -> Any:
+        """crawl4ai ``after_goto`` hook: keep the final response's status and headers.
+
+        *response* is what ``page.goto()`` returned, i.e. the last response of
+        the redirect chain. Returns *page*, as crawl4ai's hooks do.
+        """
+        if response is not None and url:
+            try:
+                status: int | None = getattr(response, "status", None)
+                self._final_responses[url] = (status, dict(response.headers))
+            except Exception:
+                logger.debug("could not keep the final response of %s", url, exc_info=True)
+        return page
+
+    def _take_final_response(self, url: str) -> tuple[int | None, dict[str, str]] | None:
+        """Remove and return the final response the hook kept for *url*, if any.
+
+        The browser may report the URL with or without a trailing slash, so
+        that variant is looked up too.
+        """
+        final = self._final_responses.pop(url, None)
+        if final is not None:
+            return final
+        variant = url[:-1] if url.endswith("/") else f"{url}/"
+        return self._final_responses.pop(variant, None)
 
     async def fetch_many(
         self,
@@ -329,6 +383,8 @@ class Fetcher:
         try:
             result = await crawler.arun(url, config=build_run_config(options, proxy))
         except Exception as exc:
+            # The hook may have seen a response before the crawl failed; drop it.
+            self._take_final_response(url)
             detail = _describe(exc)
             error = self._classified_error(url, detail, proxy, options)
             return self._failure(url, error, options), True
@@ -427,9 +483,23 @@ class Fetcher:
     async def _judge(
         self, url: str, proxy: str | None, result: Any, options: FetchOptions
     ) -> FetchOutcome:
-        """Turn a crawl4ai result into an outcome (possibly via an HTTP download)."""
-        status_code: int | None = getattr(result, "status_code", None)
-        headers: Mapping[str, Any] | None = getattr(result, "response_headers", None)
+        """Turn a crawl4ai result into an outcome (possibly via an HTTP download).
+
+        After redirects the final response is judged: its status is
+        crawl4ai's ``redirected_status_code`` (the first response's
+        ``status_code`` when absent), and its headers are those the
+        ``after_goto`` hook kept for *url* with that same status. Otherwise
+        the first response's headers (``response_headers``) are used.
+        """
+        final = self._take_final_response(url)
+        first_status: int | None = getattr(result, "status_code", None)
+        final_status: int | None = getattr(result, "redirected_status_code", None)
+        status_code = final_status if final_status is not None else first_status
+        headers: Mapping[str, Any] | None
+        if final is not None and final[0] == status_code:
+            headers = final[1]
+        else:
+            headers = getattr(result, "response_headers", None)
         html: str | None = getattr(result, "html", None)
         # Checked before success: crawl4ai's own anti-bot check marks a proxy's
         # error page or a challenge (a 403/503 HTML page) as failed, but keeps

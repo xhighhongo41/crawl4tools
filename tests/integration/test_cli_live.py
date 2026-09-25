@@ -1,14 +1,26 @@
 """End-to-end checks of crawl4cli against real sites with a real browser."""
 
 import os
+import socket
 import subprocess
 import sys
+import threading
+import time
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+import uvicorn
 from click.testing import CliRunner
+from starlette.applications import Starlette
+from starlette.requests import Request
+from starlette.responses import HTMLResponse, RedirectResponse, Response
+from starlette.routing import Route
 
 from crawl4tools.cli.main import main
+from crawl4tools.engine.errors import HttpStatusError
+from crawl4tools.engine.fetcher import Fetcher
+from crawl4tools.engine.models import FetchOptions
 from crawl4tools.i18n import get_translator
 
 pytestmark = pytest.mark.integration
@@ -104,3 +116,84 @@ def test_console_script_help_follows_the_locale() -> None:
     assert result.returncode == 0
     assert japanese in result.stdout
     assert "Download web pages as Markdown" not in result.stdout
+
+
+# --- redirects: the final response is reported (C12) ----------------------------------
+
+# Enough text that crawl4ai's anti-bot check does not take the pages for empty shells.
+_FINAL_PAGE = (
+    "<html><head><title>Final</title></head><body><h1>Final page</h1>"
+    "<p>This is where the moved page ended up after a permanent redirect.</p></body></html>"
+)
+_MISSING_PAGE = (
+    "<html><head><title>Not Found</title></head><body><h1>Not here</h1>"
+    "<p>The page this redirect points to does not exist on this server.</p></body></html>"
+)
+
+
+async def _moved(request: Request) -> Response:
+    return RedirectResponse("/final", status_code=301)
+
+
+async def _final(request: Request) -> Response:
+    return HTMLResponse(_FINAL_PAGE)
+
+
+async def _gone(request: Request) -> Response:
+    return RedirectResponse("/missing", status_code=301)
+
+
+async def _missing(request: Request) -> Response:
+    return HTMLResponse(_MISSING_PAGE, status_code=404)
+
+
+def _free_port() -> int:
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port: int = sock.getsockname()[1]
+        return port
+
+
+@pytest.fixture
+def redirect_site() -> Iterator[str]:
+    """Serve /moved -> 301 -> /final (200) and /gone -> 301 -> /missing (404) locally."""
+    app = Starlette(
+        routes=[
+            Route("/moved", _moved),
+            Route("/final", _final),
+            Route("/gone", _gone),
+            Route("/missing", _missing),
+        ]
+    )
+    port = _free_port()
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    try:
+        deadline = time.monotonic() + 30
+        while not server.started:
+            if not thread.is_alive() or time.monotonic() > deadline:
+                pytest.fail("the redirect test server did not start")
+            time.sleep(0.05)
+        yield f"http://127.0.0.1:{port}"
+    finally:
+        server.should_exit = True
+        thread.join(timeout=10)
+
+
+async def test_redirects_are_judged_by_the_final_response(redirect_site: str) -> None:
+    async with Fetcher(FetchOptions(timeout_s=30)) as fetcher:
+        moved, gone = await fetcher.fetch_many([f"{redirect_site}/moved", f"{redirect_site}/gone"])
+
+    assert moved.ok, moved.error
+    assert moved.status_code == 200
+    assert moved.final_url == f"{redirect_site}/final"
+    # The 301 has no content type: this one comes from the after_goto hook.
+    assert moved.content_type == "text/html; charset=utf-8"
+    assert moved.text is not None
+    assert "Final page" in moved.text
+
+    assert not gone.ok
+    assert isinstance(gone.error, HttpStatusError)
+    assert gone.status_code == 404
+    assert str(gone.error) == f"HTTP 404 Not Found: {redirect_site}/gone"

@@ -4,6 +4,7 @@ import base64
 import subprocess
 import sys
 from collections.abc import Callable
+from types import SimpleNamespace
 from typing import Any
 
 import httpx
@@ -1287,3 +1288,230 @@ async def test_download_challenge_without_proxy_is_non_html_content() -> None:
     )
     assert not outcome.ok
     assert isinstance(outcome.error, NonHtmlContentError)
+
+
+# --- redirects: the final response's status and headers (D10, D11) -----------------------
+
+MISSING_URL = "https://example.com/missing"
+FINAL_URL = "https://example.com/final"
+SQUID_HEADERS = {"content-type": "text/html", "x-squid-error": "ERR_SECURE_CONNECT_FAIL 0"}
+CHALLENGE_HEADERS = {"content-type": "text/html", "cf-mitigated": "challenge"}
+
+
+async def test_redirect_to_an_error_status_is_a_failure() -> None:
+    # crawl4ai reports the first response's status (301) and the final one separately.
+    result = make_result(status_code=301, redirected_status_code=404, redirected_url=MISSING_URL)
+    outcome, crawler, _ = await fetch_one(crawler=FakeCrawler(result))
+    assert not outcome.ok
+    assert isinstance(outcome.error, HttpStatusError)
+    assert outcome.error.status_code == 404
+    assert outcome.status_code == 404
+    assert len(crawler.calls) == 1
+
+
+async def test_redirect_to_a_page_reports_the_final_status() -> None:
+    result = make_result(status_code=308, redirected_status_code=200, redirected_url=FINAL_URL)
+    outcome, _, _ = await fetch_one(crawler=FakeCrawler(result))
+    assert outcome.ok, outcome.error
+    assert outcome.status_code == 200
+    assert outcome.final_url == FINAL_URL
+    assert outcome.text == "# Hello"
+
+
+@pytest.mark.parametrize("status_code", [200, 404], ids=["ok", "not-found"])
+async def test_without_a_final_status_the_first_status_is_used(status_code: int) -> None:
+    result = make_result(status_code=status_code, redirected_status_code=None)
+    outcome, _, _ = await fetch_one(crawler=FakeCrawler(result))
+    assert outcome.ok is (status_code == 200)
+    assert outcome.status_code == status_code
+
+
+async def test_redirect_to_a_proxy_error_page_is_recognized_by_the_hook_headers() -> None:
+    # Only the final response carries the proxy's error header.
+    intercepted = make_result(
+        status_code=301,
+        redirected_status_code=503,
+        redirected_url=MISSING_URL,
+        html=squid_page("ERR_SECURE_CONNECT_FAIL"),
+        response_headers={"content-type": "text/html"},
+        final_response=(503, SQUID_HEADERS),
+    )
+    crawler = FakeCrawler(proxy_aware(intercepted, make_result()))
+    outcome, crawler, _ = await fetch_one(FetchOptions(proxy=PROXY), crawler=crawler)
+    assert outcome.ok, outcome.error
+    assert len(crawler.calls) == 2
+    assert crawler.calls[1][1].proxy_config is None
+    [note] = outcome.notes
+    error = note.params["error"]
+    assert type(error) is ProxyFetchError
+    # The header's value, not the code found in the page: the hook's headers were used.
+    assert error.detail == "ERR_SECURE_CONNECT_FAIL 0"
+    assert_no_secret(outcome)
+
+
+async def test_redirect_to_a_challenge_is_recognized_by_the_hook_headers() -> None:
+    intercepted = make_result(
+        status_code=301,
+        redirected_status_code=403,
+        html=CHALLENGE_PAGE,
+        response_headers={"content-type": "text/html"},
+        final_response=(403, CHALLENGE_HEADERS),
+    )
+    crawler = FakeCrawler(proxy_aware(intercepted, make_result()))
+    outcome, crawler, _ = await fetch_one(FetchOptions(proxy=PROXY), crawler=crawler)
+    assert outcome.ok, outcome.error
+    assert len(crawler.calls) == 2
+    [note] = outcome.notes
+    assert type(note.params["error"]) is BlockedFetchError
+    assert str(note.params["error"]) == BLOCKED_ERROR
+
+
+async def test_hook_headers_give_the_final_content_type() -> None:
+    result = make_result(
+        status_code=301,
+        redirected_status_code=200,
+        redirected_url=FINAL_URL,
+        response_headers={"content-type": "text/plain"},
+        final_response=(200, {"content-type": "text/html; charset=utf-8"}),
+    )
+    outcome, _, _ = await fetch_one(crawler=FakeCrawler(result))
+    assert outcome.ok, outcome.error
+    assert outcome.content_type == "text/html; charset=utf-8"
+
+
+async def test_hook_headers_of_another_status_are_ignored() -> None:
+    # The hook saw a 200, but crawl4ai reports a final 403: the hook's entry is not
+    # this response, so the first response's headers are used, as before.
+    result = make_result(
+        status_code=301,
+        redirected_status_code=403,
+        html=CHALLENGE_PAGE,
+        response_headers={"content-type": "text/html"},
+        final_response=(200, CHALLENGE_HEADERS),
+    )
+    crawler = FakeCrawler(proxy_aware(result, make_result()))
+    outcome, crawler, _ = await fetch_one(FetchOptions(proxy=PROXY), crawler=crawler)
+    assert not outcome.ok
+    assert isinstance(outcome.error, HttpStatusError)
+    assert outcome.status_code == 403
+    assert len(crawler.calls) == 1
+    assert outcome.notes == []
+
+
+@pytest.mark.parametrize("strategy", ["absent", "without-set-hook"])
+async def test_crawler_without_hooks_uses_the_first_headers(strategy: str) -> None:
+    result = make_result(
+        status_code=301,
+        redirected_status_code=403,
+        html=CHALLENGE_PAGE,
+        response_headers={"content-type": "text/html"},
+        final_response=(403, CHALLENGE_HEADERS),
+    )
+    crawler = FakeCrawler(proxy_aware(result, make_result()))
+    if strategy == "absent":
+        del crawler.crawler_strategy
+    else:
+        crawler.crawler_strategy = SimpleNamespace(hooks={})  # type: ignore[assignment]
+    outcome, crawler, _ = await fetch_one(FetchOptions(proxy=PROXY), crawler=crawler)
+    assert not outcome.ok
+    assert isinstance(outcome.error, HttpStatusError)
+    assert outcome.status_code == 403
+    assert len(crawler.calls) == 1
+
+
+async def test_crawler_without_hooks_still_fetches() -> None:
+    crawler = FakeCrawler(make_result(status_code=302, redirected_status_code=200))
+    del crawler.crawler_strategy
+    outcome, _, _ = await fetch_one(crawler=crawler)
+    assert outcome.ok, outcome.error
+    assert outcome.status_code == 200
+    assert outcome.content_type == "text/html"
+
+
+async def test_after_goto_hook_is_registered_once_on_start() -> None:
+    fetcher, crawler, _ = make_fetcher()
+    async with fetcher:
+        assert crawler.crawler_strategy.hooks == {}
+        await fetcher.fetch_many([URL, FINAL_URL])
+        assert crawler.crawler_strategy.hooks == {"after_goto": fetcher._after_goto}
+    assert crawler.factory_calls == 1
+
+
+async def test_after_goto_hook_returns_the_page_and_keeps_the_final_response() -> None:
+    fetcher, _, _ = make_fetcher()
+    page = object()
+    response = SimpleNamespace(status=403, headers=CHALLENGE_HEADERS)
+    assert await fetcher._after_goto(page, context=None, url=URL, response=response) is page
+    assert fetcher._final_responses == {URL: (403, CHALLENGE_HEADERS)}
+
+
+@pytest.mark.parametrize(
+    ("url", "response"),
+    [
+        pytest.param(URL, None, id="no-response"),
+        pytest.param(None, SimpleNamespace(status=200, headers={}), id="no-url"),
+        pytest.param(URL, SimpleNamespace(status=200), id="broken-response"),
+    ],
+)
+async def test_after_goto_hook_ignores_what_it_cannot_use(url: str | None, response: Any) -> None:
+    fetcher, _, _ = make_fetcher()
+    page = object()
+    assert await fetcher._after_goto(page, url=url, response=response) is page
+    assert fetcher._final_responses == {}
+
+
+@pytest.mark.parametrize(
+    ("requested", "hooked"),
+    [(URL, URL + "/"), (URL + "/", URL)],
+    ids=["hook-adds-slash", "hook-drops-slash"],
+)
+async def test_hook_entry_differing_by_a_trailing_slash_is_found(
+    requested: str, hooked: str
+) -> None:
+    result = make_result(
+        status_code=301,
+        redirected_status_code=403,
+        html=CHALLENGE_PAGE,
+        response_headers={"content-type": "text/html"},
+    )
+    crawler = FakeCrawler(proxy_aware(result, make_result()))
+    fetcher, crawler, _ = make_fetcher(FetchOptions(proxy=PROXY), crawler=crawler)
+    response = SimpleNamespace(status=403, headers=CHALLENGE_HEADERS)
+    await fetcher._after_goto(None, url=hooked, response=response)
+    async with fetcher:
+        outcome = await fetcher.fetch(requested)
+    assert outcome.ok, outcome.error
+    assert len(crawler.calls) == 2
+    assert type(outcome.notes[0].params["error"]) is BlockedFetchError
+    assert fetcher._final_responses == {}
+
+
+async def test_hook_entry_is_used_once() -> None:
+    first = make_result(
+        status_code=301,
+        redirected_status_code=200,
+        response_headers={"content-type": "text/plain"},
+        final_response=(200, {"content-type": "text/html; charset=utf-8"}),
+    )
+    second = make_result(response_headers={"content-type": "text/html"})
+    results = iter([first, second])
+    crawler = FakeCrawler(lambda url, config: next(results))
+    fetcher, crawler, _ = make_fetcher(crawler=crawler)
+    async with fetcher:
+        outcomes = [await fetcher.fetch(URL), await fetcher.fetch(URL)]
+    assert [outcome.content_type for outcome in outcomes] == [
+        "text/html; charset=utf-8",
+        "text/html",
+    ]
+    assert fetcher._final_responses == {}
+
+
+async def test_hook_entry_is_dropped_when_the_crawl_fails() -> None:
+    crawler = FakeCrawler(RuntimeError("boom"))
+    fetcher, crawler, _ = make_fetcher(crawler=crawler)
+    response = SimpleNamespace(status=200, headers={"content-type": "text/html"})
+    await fetcher._after_goto(None, url=URL, response=response)
+    async with fetcher:
+        outcome = await fetcher.fetch(URL)
+    assert not outcome.ok
+    assert fetcher._final_responses == {}
