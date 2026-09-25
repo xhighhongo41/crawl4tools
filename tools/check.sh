@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Run every mechanical check short of a release: lock file freshness, shellcheck,
-# lint, format check, type check, and unit tests, in order. Exits non-zero on the
-# first failure. With --integration, also run the integration tests (real browser).
+# actionlint (GitHub Actions workflow linter), lint, format check, type check, and
+# unit tests, in order. Exits non-zero on the first failure. With --integration, also
+# run the integration tests (real browser).
 set -euo pipefail
 cd "$(dirname "$0")/.." || exit 1
 
@@ -23,6 +24,13 @@ if command -v shellcheck >/dev/null 2>&1; then
     shellcheck tools/*.sh
 else
     step "shellcheck (skipped: not installed)"
+fi
+
+if command -v actionlint >/dev/null 2>&1; then
+    step "actionlint"
+    actionlint
+else
+    step "actionlint (skipped: not installed)"
 fi
 
 step "ruff check"
