@@ -8,6 +8,8 @@ Pre-release versions are written in PEP 440 form (for example 1.0.0b1).
 
 ## [Unreleased]
 
+## [1.0.0b1] - 2026-09-25
+
 ### Added
 
 - PyPI package `crawl4tools`
@@ -81,7 +83,8 @@ Pre-release versions are written in PEP 440 form (for example 1.0.0b1).
 
 No code is included in this release.
 
-[Unreleased]: https://github.com/xhighhongo41/crawl4tools/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/xhighhongo41/crawl4tools/compare/v1.0.0b1...HEAD
+[1.0.0b1]: https://github.com/xhighhongo41/crawl4tools/compare/v0.4.0...v1.0.0b1
 [0.4.0]: https://github.com/xhighhongo41/crawl4tools/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/xhighhongo41/crawl4tools/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/xhighhongo41/crawl4tools/compare/v0.1.0...v0.2.0
