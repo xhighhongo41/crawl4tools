@@ -307,11 +307,18 @@ def test_page_meta_success() -> None:
         "status_code": 200,
         "content_kind": "html",
         "content_type": "text/html; charset=utf-8",
+        "text": "# Hello",
         "chars": len("# Hello"),
         "bytes": None,
         "error": None,
         "notes": ["a note"],
     }
+
+
+def test_page_meta_text_matches_the_body() -> None:
+    outcome = _ok_text_outcome(text="# Hello\n\nBody text.")
+    meta = page_meta(outcome, outcome.url, ENGLISH)
+    assert meta["text"] == "# Hello\n\nBody text."
 
 
 def test_page_meta_notes_are_english_strings() -> None:
@@ -337,6 +344,14 @@ def test_page_meta_failure() -> None:
     assert meta["error"] == "HTTP 404 Not Found: https://bad.example/"
     assert meta["chars"] is None
     assert meta["bytes"] is None
+    assert meta["text"] is None
+
+
+def test_page_meta_text_none_when_not_ok_even_with_text() -> None:
+    # A failed outcome should never surface its text, even if one is set.
+    outcome = FetchOutcome(url="https://bad.example/", ok=False, text="leftover")
+    meta = page_meta(outcome, outcome.url, ENGLISH)
+    assert meta["text"] is None
 
 
 def test_page_meta_binary_reports_bytes() -> None:
@@ -349,6 +364,29 @@ def test_page_meta_binary_reports_bytes() -> None:
     meta = page_meta(outcome, outcome.url, ENGLISH)
     assert meta["bytes"] == 5
     assert meta["chars"] is None
+
+
+def test_page_meta_text_none_for_binary_image() -> None:
+    outcome = FetchOutcome(
+        url="https://example.com/photo.png",
+        ok=True,
+        content_kind=ContentKind.BINARY,
+        content_type="image/png",
+        data=b"\x89PNG\r\n fake",
+    )
+    meta = page_meta(outcome, outcome.url, ENGLISH)
+    assert meta["text"] is None
+
+
+def test_page_meta_text_none_for_screenshot() -> None:
+    outcome = FetchOutcome(
+        url="https://example.com/",
+        ok=True,
+        content_kind=ContentKind.HTML,
+        data=b"\x89PNG\r\n fake",
+    )
+    meta = page_meta(outcome, outcome.url, ENGLISH)
+    assert meta["text"] is None
 
 
 def test_page_meta_notes_is_a_copy() -> None:

@@ -63,6 +63,15 @@ def structured(result: CallToolResult) -> dict[str, Any]:
     return data
 
 
+def without_header(text: str) -> str:
+    """Strip the leading ``<!-- ... -->`` header/note lines off *text*."""
+    lines = text.split("\n")
+    body_start = 0
+    while body_start < len(lines) and lines[body_start].startswith("<!--"):
+        body_start += 1
+    return "\n".join(lines[body_start:])
+
+
 def typed_http(data: bytes, content_type: str) -> FakeHttp:
     """Return a FakeHttp answering every URL with *data* of *content_type*."""
     return FakeHttp(
@@ -150,6 +159,7 @@ async def test_fetch_single_markdown(tmp_path: Path) -> None:
     assert page["ok"] is True
     assert page["url"] == URL
     assert page["chars"] == len("# Hello")
+    assert page["text"] == without_header(result.content[0].text)
     assert structured(result)["duplicates"] == []
     assert crawler.factory_calls == 1
 
@@ -167,7 +177,9 @@ async def test_fetch_multiple_urls_in_order(tmp_path: Path) -> None:
     assert blocks[0].endswith("first")
     assert blocks[1].startswith(f"<!-- crawl4tools: url={URL2} status=200 -->")
     assert blocks[1].endswith("second")
-    assert [page["url"] for page in structured(result)["pages"]] == [URL, URL2]
+    pages = structured(result)["pages"]
+    assert [page["url"] for page in pages] == [URL, URL2]
+    assert [page["text"] for page in pages] == [without_header(block) for block in blocks]
 
 
 async def test_fetch_html(tmp_path: Path) -> None:
@@ -189,6 +201,7 @@ async def test_fetch_screenshot(tmp_path: Path) -> None:
     assert image.mime_type == "image/png"
     assert base64.b64decode(image.data) == PNG
     assert crawler.calls[0][1].screenshot is True
+    assert structured(result)["pages"][0]["text"] is None
 
 
 async def test_fetch_image_url_returns_image(tmp_path: Path) -> None:
@@ -291,12 +304,24 @@ async def test_fetch_per_call_options_reach_crawler(tmp_path: Path) -> None:
     assert isinstance(config.markdown_generator.content_filter, PruningContentFilterLXML)
     assert config.markdown_generator.options["ignore_links"] is True
     assert [timeout for _, timeout in http.client_calls] == [5]
+    assert structured(result)["pages"][0]["text"] == without_header(texts(result)[0])
 
 
 async def test_fetch_citations(tmp_path: Path) -> None:
     server, _, _ = make_server(tmp_path)
     result = await call(server, "fetch", {"urls": [URL], "citations": True})
     assert texts(result) == ["# Hello [1]\n\n## References\n[1]: x"]
+    assert structured(result)["pages"][0]["text"] == without_header(texts(result)[0])
+
+
+async def test_fetch_structured_text_matches_content_with_fit_and_citations(
+    tmp_path: Path,
+) -> None:
+    server, _, _ = make_server(tmp_path)
+    result = await call(server, "fetch", {"urls": [URL], "fit": True, "citations": True})
+    assert not result.is_error
+    assert len(result.content) == 1
+    assert structured(result)["pages"][0]["text"] == without_header(texts(result)[0])
 
 
 async def test_settings_proxy_is_used(tmp_path: Path) -> None:
@@ -709,6 +734,7 @@ PAGE_KEYS = {
     "status_code",
     "content_kind",
     "content_type",
+    "text",
     "chars",
     "bytes",
     "error",

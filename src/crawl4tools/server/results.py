@@ -186,7 +186,12 @@ def page_blocks(
 def page_meta(outcome: FetchOutcome, url: str, t: Translator) -> dict[str, object]:
     """Return the structured metadata for one URL's outcome.
 
-    The ``error`` and ``notes`` values are translated by *t*; the keys are not.
+    ``text`` duplicates the body :func:`page_blocks` puts in the text
+    content block (without the header/note lines), so that MCP clients that
+    only look at ``structuredContent`` still get the page's text; it is None
+    for failures and for outcomes without a text payload (images,
+    screenshots, other binary content). The ``error`` and ``notes`` values
+    are translated by *t*; the keys are not.
     """
     return {
         "url": url,
@@ -196,6 +201,7 @@ def page_meta(outcome: FetchOutcome, url: str, t: Translator) -> dict[str, objec
         "status_code": outcome.status_code,
         "content_kind": str(outcome.content_kind),
         "content_type": outcome.content_type,
+        "text": outcome.text if outcome.ok and outcome.text is not None else None,
         "chars": len(outcome.text) if outcome.text is not None else None,
         "bytes": len(outcome.data) if outcome.data is not None else None,
         "error": outcome.error.render(t) if outcome.error is not None else None,

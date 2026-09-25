@@ -16,6 +16,10 @@ and descriptions, the parameter descriptions, notes and errors) is in the
 language of ``settings.lang``; the ``note:`` / ``saved:`` / ``error:`` /
 ``done:`` prefixes, the ``<!-- crawl4tools: ... -->`` header and the keys
 of the structured data stay in English. Logs are always in English.
+
+``fetch``'s ``structured_content["pages"][i]["text"]`` duplicates the body
+of the matching ``content`` block, since some MCP clients drop the
+``content`` text blocks when ``structuredContent`` is present.
 """
 
 # No ``from __future__ import annotations`` in this module: the parameter
