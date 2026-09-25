@@ -123,6 +123,10 @@ msgid "proxy connection failed ({proxy}): {url}"
 msgstr "プロキシに接続できません({proxy}): {url}"
 
 #, python-brace-format
+msgid "proxy refused the connection ({proxy}, HTTP {status}): {url}"
+msgstr "プロキシに接続を拒否されました({proxy}、HTTP {status}): {url}"
+
+#, python-brace-format
 msgid "TLS error: {summary}: {url}"
 msgstr "TLS エラーが発生しました: {summary}: {url}"
 

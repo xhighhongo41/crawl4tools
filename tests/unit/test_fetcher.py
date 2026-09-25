@@ -21,6 +21,7 @@ from crawl4tools.engine.errors import (
     HttpStatusError,
     NonHtmlContentError,
     ProxyFetchError,
+    ProxyRefusedError,
     TlsFetchError,
 )
 from crawl4tools.engine.fetcher import Fetcher, build_run_config
@@ -393,6 +394,69 @@ async def test_arun_exception_through_proxy_falls_back() -> None:
     assert outcome.ok
     assert len(crawler.calls) == 2
     assert_no_secret(outcome)
+
+
+# --- proxy CONNECT refusal (T6): 403 is not bypassed with a direct connection ------------
+
+
+async def test_proxy_connect_refusal_403_does_not_start_the_browser() -> None:
+    http = FakeHttp(raising(httpx.ProxyError("403 Forbidden")))
+    crawler = FakeCrawler()
+    outcome, crawler, http = await fetch_one(FetchOptions(proxy=PROXY), crawler=crawler, http=http)
+    assert not outcome.ok
+    assert isinstance(outcome.error, ProxyRefusedError)
+    assert outcome.error.status == 403
+    assert crawler.calls == []
+    assert not crawler.started
+    assert http.proxies == [PROXY]
+    assert outcome.notes == []
+    assert_no_secret(outcome)
+
+
+async def test_proxy_connect_refusal_403_is_kept_with_fallback_disabled() -> None:
+    http = FakeHttp(raising(httpx.ProxyError("403 Forbidden")))
+    crawler = FakeCrawler()
+    outcome, crawler, http = await fetch_one(
+        FetchOptions(proxy=PROXY, fallback=False), crawler=crawler, http=http
+    )
+    assert not outcome.ok
+    assert isinstance(outcome.error, ProxyRefusedError)
+    assert crawler.calls == []
+    assert not crawler.started
+    assert http.proxies == [PROXY]
+    assert outcome.notes == []
+    assert_no_secret(outcome)
+
+
+async def test_proxy_connect_refusal_502_still_falls_back_via_the_browser() -> None:
+    http = FakeHttp(raising(httpx.ProxyError("502 Bad Gateway")))
+    crawler = FakeCrawler(
+        proxy_aware(fail("net::ERR_TUNNEL_CONNECTION_FAILED at " + URL), make_result())
+    )
+    outcome, crawler, http = await fetch_one(FetchOptions(proxy=PROXY), crawler=crawler, http=http)
+    assert outcome.ok
+    assert len(crawler.calls) == 2
+    assert http.proxies == [PROXY, None]
+    assert len(outcome.notes) == 1
+    assert note_texts(outcome)[0].startswith("proxy failed (")
+    assert_no_secret(outcome)
+
+
+async def test_proxy_connect_refusal_407_defers_to_the_browser() -> None:
+    http = FakeHttp(raising(httpx.ProxyError("407 Proxy Authentication Required")))
+    crawler = FakeCrawler()
+    outcome, crawler, http = await fetch_one(FetchOptions(proxy=PROXY), crawler=crawler, http=http)
+    assert outcome.ok
+    assert len(crawler.calls) >= 1
+    assert_no_secret(outcome)
+
+
+async def test_proxy_status_without_a_configured_proxy_is_irrelevant() -> None:
+    http = FakeHttp(raising(httpx.ProxyError("403 Forbidden")))
+    crawler = FakeCrawler()
+    outcome, crawler, _ = await fetch_one(crawler=crawler, http=http)
+    assert outcome.ok
+    assert len(crawler.calls) == 1
 
 
 # --- non-HTML resources (probe path) ---------------------------------------------

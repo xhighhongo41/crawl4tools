@@ -22,7 +22,12 @@ from types import TracebackType
 from typing import Any, Protocol
 
 from crawl4tools.engine.classify import build_error, classify_error_message, error_for_status
-from crawl4tools.engine.errors import FetchError, HttpStatusError, NonHtmlContentError
+from crawl4tools.engine.errors import (
+    FetchError,
+    HttpStatusError,
+    NonHtmlContentError,
+    ProxyRefusedError,
+)
 from crawl4tools.engine.interception import InterferenceSign, detect_interference
 from crawl4tools.engine.models import (
     ContentKind,
@@ -40,7 +45,7 @@ from crawl4tools.engine.probe import (
     default_http_client,
     probe,
 )
-from crawl4tools.engine.proxy import normalize_proxy, should_fallback
+from crawl4tools.engine.proxy import PROXY_REFUSAL_STATUSES, normalize_proxy, should_fallback
 from crawl4tools.i18n import N_
 
 logger = logging.getLogger(__name__)
@@ -367,7 +372,10 @@ class Fetcher:
         """Run one probe + browser attempt for *url* through *proxy*.
 
         Returns the outcome and whether a failure may be retried without the
-        proxy (False when the browser itself could not be started).
+        proxy (False when the browser itself could not be started, or when
+        the proxy refused the CONNECT by its own policy, e.g. HTTP 403: the
+        browser is not even started for those, since retrying with a direct
+        connection would defeat the point of using the proxy).
         """
         probed = await probe(
             url,
@@ -375,6 +383,14 @@ class Fetcher:
             timeout_s=options.timeout_s,
             client_factory=self._http_client_factory,
         )
+        if (
+            probed.error_kind is FailureKind.PROXY
+            and probed.proxy_status is not None
+            and probed.proxy_status in PROXY_REFUSAL_STATUSES
+            and proxy is not None
+        ):
+            refused = ProxyRefusedError(url, proxy, probed.proxy_status)
+            return self._failure(url, refused, options), False
         if probed.ok and not probed.is_html and probed.body is not None:
             return await self._resource_outcome(url, probed, options), True
 

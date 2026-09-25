@@ -192,6 +192,30 @@ class ProxyFetchError(FetchError):
         return {"proxy": self.proxy, "url": self.url}
 
 
+class ProxyRefusedError(ProxyFetchError):
+    """The proxy refused to open the CONNECT tunnel by its own policy.
+
+    Unlike other :class:`ProxyFetchError` failures, this is not something a
+    direct connection should bypass: an HTTP 403 answer to CONNECT means the
+    proxy administrator deliberately denied the destination, and retrying
+    without the proxy would defeat that policy.
+    """
+
+    def __init__(self, url: str, proxy: str, status: int) -> None:
+        self.status = status
+        super().__init__(url, proxy)
+
+    @property
+    def template(self) -> str:
+        """The English ``str.format`` template of the message."""
+        return N_("proxy refused the connection ({proxy}, HTTP {status}): {url}")
+
+    @property
+    def params(self) -> dict[str, object]:
+        """The values for the fields of :attr:`template`."""
+        return {"proxy": self.proxy, "status": self.status, "url": self.url}
+
+
 class TlsFetchError(FetchError):
     """The TLS connection to the URL failed (a handshake or certificate error).
 

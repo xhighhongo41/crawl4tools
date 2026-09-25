@@ -8,6 +8,7 @@ at all. The probe never raises: every failure is reported through
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
@@ -35,6 +36,9 @@ _NAME_RESOLUTION_PATTERNS = (
     "no address associated",
 )
 
+# httpcore reports a rejected CONNECT as "<status> <reason>", e.g. "403 Forbidden".
+_PROXY_STATUS_RE = re.compile(r"\s*(\d{3})\b")
+
 
 def default_http_client(proxy: str | None, timeout_s: float) -> httpx.AsyncClient:
     """Return the default httpx client used for probing and downloads.
@@ -61,6 +65,10 @@ class ProbeResult:
     body: bytes | None = None
     error_kind: FailureKind | None = None
     error_detail: str | None = None
+    # The status the proxy answered a rejected CONNECT with (from
+    # httpx.ProxyError's message), or None when there was no proxy error, or
+    # its message did not start with a status code.
+    proxy_status: int | None = None
     skipped: bool = False
     # The response headers, with lowercase names (empty when there was no response).
     headers: dict[str, str] = field(default_factory=dict)
@@ -94,6 +102,12 @@ def _first_line(exc: BaseException) -> str:
     text = str(exc)
     lines = text.splitlines()
     return lines[0] if lines else type(exc).__name__
+
+
+def _proxy_status(exc: httpx.ProxyError) -> int | None:
+    """Return the CONNECT status *exc*'s message starts with, or None."""
+    match = _PROXY_STATUS_RE.match(str(exc))
+    return int(match.group(1)) if match else None
 
 
 def _classify_exception(exc: Exception) -> FailureKind:
@@ -146,4 +160,9 @@ async def probe(
                 result.body = await response.aread()
             return result
     except (httpx.HTTPError, httpx.InvalidURL, httpx.StreamError) as exc:
-        return ProbeResult(error_kind=_classify_exception(exc), error_detail=_first_line(exc))
+        proxy_status = _proxy_status(exc) if isinstance(exc, httpx.ProxyError) else None
+        return ProbeResult(
+            error_kind=_classify_exception(exc),
+            error_detail=_first_line(exc),
+            proxy_status=proxy_status,
+        )

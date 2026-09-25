@@ -186,6 +186,26 @@ async def test_exceptions_are_mapped_not_raised(exc: Exception, kind: FailureKin
     assert result.status_code is None
 
 
+@pytest.mark.parametrize(
+    ("exc", "proxy_status"),
+    [
+        (httpx.ProxyError("403 Forbidden"), 403),
+        (httpx.ProxyError("502 Bad Gateway"), 502),
+        (httpx.ProxyError("connection refused"), None),
+        (httpx.ConnectError("[Errno 61] Connection refused"), None),
+    ],
+)
+async def test_proxy_status_from_proxy_error(exc: Exception, proxy_status: int | None) -> None:
+    result = await probe(URL, proxy=None, timeout_s=3.0, client_factory=_raiser(exc))
+    assert result.proxy_status == proxy_status
+
+
+async def test_proxy_status_defaults_to_none() -> None:
+    assert ProbeResult().proxy_status is None
+    result = await probe(URL, proxy=None, timeout_s=3.0, client_factory=FakeHttp())
+    assert result.proxy_status is None
+
+
 async def test_headers_are_kept_with_lowercase_names() -> None:
     http = FakeHttp(
         lambda request: httpx.Response(

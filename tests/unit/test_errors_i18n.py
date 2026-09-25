@@ -23,6 +23,7 @@ from crawl4tools.engine.errors import (
     NameResolutionError,
     NonHtmlContentError,
     ProxyFetchError,
+    ProxyRefusedError,
     TlsFetchError,
 )
 from crawl4tools.engine.models import Note
@@ -164,6 +165,13 @@ FETCH_ERROR_CASES = [
         {"proxy": REDACTED_PROXY, "url": URL},
         f"proxy connection failed ({REDACTED_PROXY}): {URL}",
         id="proxy",
+    ),
+    pytest.param(
+        ProxyRefusedError(URL, PROXY, 403),
+        "proxy refused the connection ({proxy}, HTTP {status}): {url}",
+        {"proxy": REDACTED_PROXY, "status": 403, "url": URL},
+        f"proxy refused the connection ({REDACTED_PROXY}, HTTP 403): {URL}",
+        id="proxy-refused",
     ),
     pytest.param(
         TlsFetchError(URL),
@@ -461,6 +469,13 @@ def test_japanese_invalid_url_error() -> None:
     with pytest.raises(InvalidUrlError) as info:
         validate_url("ftp://x")
     assert info.value.render(get_translator("ja")) == "http(s) の URL ではありません: ftp://x"
+
+
+def test_japanese_proxy_refused_error() -> None:
+    error = ProxyRefusedError(URL, PROXY, 403)
+    assert error.render(get_translator("ja")) == (
+        f"プロキシに接続を拒否されました({REDACTED_PROXY}、HTTP 403): {URL}"
+    )
 
 
 def test_japanese_tls_error_with_a_summary() -> None:
