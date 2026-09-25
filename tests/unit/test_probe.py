@@ -152,6 +152,29 @@ def _raiser(exc: Exception) -> FakeHttp:
         (httpx.ConnectError("getaddrinfo failed"), FailureKind.NAME_RESOLUTION),
         (httpx.ConnectError("[Errno 61] Connection refused"), FailureKind.CONNECTION_REFUSED),
         (httpx.ConnectError("something else"), FailureKind.OTHER),
+        (
+            httpx.ConnectError(
+                "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: "
+                "self-signed certificate in certificate chain (_ssl.c:1000)"
+            ),
+            FailureKind.TLS,
+        ),
+        (
+            httpx.ConnectError("[SSL: WRONG_VERSION_NUMBER] wrong version number (_ssl.c:1000)"),
+            FailureKind.TLS,
+        ),
+        (
+            httpx.ReadError("[SSL: SSLV3_ALERT_BAD_RECORD_MAC] sslv3 alert bad record mac"),
+            FailureKind.TLS,
+        ),
+        (
+            httpx.ProxyError("[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed"),
+            FailureKind.PROXY,
+        ),
+        (
+            httpx.ConnectTimeout("_ssl.c:989: The handshake operation timed out"),
+            FailureKind.TIMEOUT,
+        ),
         (httpx.RemoteProtocolError("bad\nsecond line"), FailureKind.OTHER),
     ],
 )
@@ -161,3 +184,47 @@ async def test_exceptions_are_mapped_not_raised(exc: Exception, kind: FailureKin
     assert result.error_detail == str(exc).splitlines()[0]
     assert not result.ok
     assert result.status_code is None
+
+
+async def test_headers_are_kept_with_lowercase_names() -> None:
+    http = FakeHttp(
+        lambda request: httpx.Response(
+            503,
+            headers={"Content-Type": "text/html", "X-Squid-Error": "ERR_SECURE_CONNECT_FAIL 0"},
+            text="<html></html>",
+        )
+    )
+    result = await probe(URL, proxy=None, timeout_s=3.0, client_factory=http)
+    assert result.headers["x-squid-error"] == "ERR_SECURE_CONNECT_FAIL 0"
+    assert result.headers["content-type"] == "text/html"
+    assert all(name == name.lower() for name in result.headers)
+
+
+async def test_headers_of_the_final_response_are_kept() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/doc":
+            return httpx.Response(
+                302, headers={"location": "https://example.com/final", "x-hop": "first"}
+            )
+        return httpx.Response(200, headers={"CF-Mitigated": "challenge"}, text="x")
+
+    result = await probe(URL, proxy=None, timeout_s=3.0, client_factory=FakeHttp(handler))
+    assert result.headers["cf-mitigated"] == "challenge"
+    assert "x-hop" not in result.headers
+
+
+async def test_repeated_headers_are_joined() -> None:
+    http = FakeHttp(
+        lambda request: httpx.Response(200, headers=[("X-Test", "a"), ("x-test", "b")], text="x")
+    )
+    result = await probe(URL, proxy=None, timeout_s=3.0, client_factory=http)
+    assert result.headers["x-test"] == "a, b"
+
+
+async def test_headers_are_empty_without_a_response() -> None:
+    result = await probe(
+        URL, proxy=None, timeout_s=3.0, client_factory=_raiser(httpx.ConnectError("x"))
+    )
+    assert result.headers == {}
+    assert ProbeResult().headers == {}
+    assert ProbeResult(skipped=True).headers == {}

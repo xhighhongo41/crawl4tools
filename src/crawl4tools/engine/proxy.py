@@ -20,8 +20,18 @@ SUPPORTED_SCHEMES = ("http", "https", "socks5")
 # problem, and are therefore worth retrying without the proxy.
 FALLBACK_STATUS_CODES = frozenset({407, 502, 503, 504})
 
-# Failure kinds that are worth retrying without the configured proxy.
-FALLBACK_KINDS = frozenset({FailureKind.PROXY, FailureKind.CONNECTION_REFUSED, FailureKind.TIMEOUT})
+# Failure kinds that are worth retrying without the configured proxy. TLS and
+# BLOCKED are how a proxy that intercepts TLS breaks a fetch (see
+# crawl4tools.engine.interception).
+FALLBACK_KINDS = frozenset(
+    {
+        FailureKind.PROXY,
+        FailureKind.CONNECTION_REFUSED,
+        FailureKind.TIMEOUT,
+        FailureKind.TLS,
+        FailureKind.BLOCKED,
+    }
+)
 
 # Matches an optional "scheme://" followed by userinfo ("user[:pass]") and
 # an "@". Used to redact credentials from proxy URLs, with or without a

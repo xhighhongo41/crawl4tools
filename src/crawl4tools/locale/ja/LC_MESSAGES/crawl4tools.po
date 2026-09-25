@@ -122,6 +122,18 @@ msgstr "{timeout_s:g} 秒でタイムアウトしました: {url}"
 msgid "proxy connection failed ({proxy}): {url}"
 msgstr "プロキシに接続できません({proxy}): {url}"
 
+#, python-brace-format
+msgid "TLS error: {summary}: {url}"
+msgstr "TLS エラーが発生しました: {summary}: {url}"
+
+#, python-brace-format
+msgid "TLS error: {url}"
+msgstr "TLS エラーが発生しました: {url}"
+
+#, python-brace-format
+msgid "blocked by a bot challenge (HTTP {status_code}): {url}"
+msgstr "ボット対策のチャレンジで拒否されました(HTTP {status_code}): {url}"
+
 msgid ""
 "browser is not installed. Run 'playwright install chromium' (or "
 "'crawl4ai-setup') and retry."

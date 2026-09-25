@@ -9,10 +9,11 @@ at all. The probe never raises: every failure is reported through
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import httpx
 
+from crawl4tools.engine.interception import is_tls_message
 from crawl4tools.engine.models import FailureKind
 from crawl4tools.engine.proxy import is_socks
 
@@ -61,6 +62,8 @@ class ProbeResult:
     error_kind: FailureKind | None = None
     error_detail: str | None = None
     skipped: bool = False
+    # The response headers, with lowercase names (empty when there was no response).
+    headers: dict[str, str] = field(default_factory=dict)
 
     @property
     def media_type(self) -> str | None:
@@ -98,8 +101,12 @@ def _classify_exception(exc: Exception) -> FailureKind:
         return FailureKind.PROXY
     if isinstance(exc, httpx.TimeoutException):
         return FailureKind.TIMEOUT
+    lowered = str(exc).lower()
+    # httpx reports a failed TLS handshake as a ConnectError, and a TLS failure
+    # later in the exchange as another transport error; only the text tells.
+    if is_tls_message(lowered):
+        return FailureKind.TLS
     if isinstance(exc, httpx.ConnectError):
-        lowered = str(exc).lower()
         if any(pattern in lowered for pattern in _NAME_RESOLUTION_PATTERNS):
             return FailureKind.NAME_RESOLUTION
         if "refused" in lowered:
@@ -133,6 +140,7 @@ async def probe(
                 status_code=response.status_code,
                 content_type=response.headers.get("content-type"),
                 final_url=str(response.url),
+                headers={name.lower(): value for name, value in response.headers.items()},
             )
             if read_body or (response.is_success and not result.is_html):
                 result.body = await response.aread()

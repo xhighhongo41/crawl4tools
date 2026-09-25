@@ -39,6 +39,8 @@ def test_failure_kind_values() -> None:
     assert FailureKind.CONNECTION_REFUSED.value == "connection_refused"
     assert FailureKind.TIMEOUT.value == "timeout"
     assert FailureKind.PROXY.value == "proxy"
+    assert FailureKind.TLS.value == "tls"
+    assert FailureKind.BLOCKED.value == "blocked"
     assert FailureKind.BROWSER_NOT_INSTALLED.value == "browser_not_installed"
     assert FailureKind.NON_HTML.value == "non_html"
     assert FailureKind.OTHER.value == "other"

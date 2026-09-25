@@ -54,6 +54,8 @@ class FailureKind(StrEnum):
     CONNECTION_REFUSED = "connection_refused"
     TIMEOUT = "timeout"
     PROXY = "proxy"
+    TLS = "tls"
+    BLOCKED = "blocked"
     BROWSER_NOT_INSTALLED = "browser_not_installed"
     NON_HTML = "non_html"
     OTHER = "other"

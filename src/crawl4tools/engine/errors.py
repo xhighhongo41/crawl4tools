@@ -192,6 +192,45 @@ class ProxyFetchError(FetchError):
         return {"proxy": self.proxy, "url": self.url}
 
 
+class TlsFetchError(FetchError):
+    """The TLS connection to the URL failed (a handshake or certificate error).
+
+    Through a proxy this usually means the proxy intercepts TLS. The
+    message does not name the proxy: the fallback note and the user's own
+    settings already say which proxy was used. Its parameters are those of
+    :class:`FetchError` (the summary of ``detail``, if any, and the URL).
+    """
+
+    kind = FailureKind.TLS
+
+    @property
+    def template(self) -> str:
+        """The English ``str.format`` template of the message."""
+        if self._summary():
+            return N_("TLS error: {summary}: {url}")
+        return N_("TLS error: {url}")
+
+
+class BlockedFetchError(FetchError):
+    """The site answered with a bot challenge instead of the page."""
+
+    kind = FailureKind.BLOCKED
+
+    def __init__(self, url: str, status_code: int) -> None:
+        self.status_code = status_code
+        super().__init__(url)
+
+    @property
+    def template(self) -> str:
+        """The English ``str.format`` template of the message."""
+        return N_("blocked by a bot challenge (HTTP {status_code}): {url}")
+
+    @property
+    def params(self) -> dict[str, object]:
+        """The values for the fields of :attr:`template`."""
+        return {"status_code": self.status_code, "url": self.url}
+
+
 class BrowserNotInstalledError(FetchError):
     """The underlying browser engine is not installed."""
 

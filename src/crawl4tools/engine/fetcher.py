@@ -22,6 +22,7 @@ from typing import Any, Protocol
 
 from crawl4tools.engine.classify import build_error, classify_error_message, error_for_status
 from crawl4tools.engine.errors import FetchError, NonHtmlContentError
+from crawl4tools.engine.interception import InterferenceSign, detect_interference
 from crawl4tools.engine.models import (
     ContentKind,
     FailureKind,
@@ -43,6 +44,23 @@ from crawl4tools.i18n import N_
 
 _PDF_MEDIA_TYPE = "application/pdf"
 _HTML_MEDIA_TYPES = frozenset({"text/html", "application/xhtml+xml"})
+
+# HTTP download failures on the way to the server (through the proxy, if any)
+# rather than at the URL itself. They keep their kind, so they can trigger the
+# direct-connection fallback; any other failed download means the content
+# could not be used.
+_DOWNLOAD_PATH_FAILURES = frozenset(
+    {
+        FailureKind.TLS,
+        FailureKind.PROXY,
+        FailureKind.TIMEOUT,
+        FailureKind.CONNECTION_REFUSED,
+    }
+)
+
+# How much of a downloaded body is decoded to look for a proxy's error page:
+# its title comes first, and the body may be a large file.
+_ERROR_PAGE_SCAN_BYTES = 64 * 1024
 
 
 class CrawlerLike(Protocol):
@@ -328,34 +346,105 @@ class Fetcher:
             proxy=proxy,
         )
 
-    async def _download(
-        self, url: str, proxy: str | None, options: FetchOptions
-    ) -> ProbeResult | None:
-        """Download *url* over plain HTTP; return the probe only if it succeeded."""
-        downloaded = await probe(
+    def _interference_error(
+        self,
+        url: str,
+        proxy: str | None,
+        headers: Mapping[str, Any] | None,
+        html: str | None,
+        status_code: int | None,
+    ) -> FetchError | None:
+        """Return the failure a response broken by an intercepting proxy is reported as.
+
+        A proxy's own error page is always a failure: a proxy failure when a
+        proxy was used, a generic one otherwise. A bot challenge only counts
+        through a proxy; without one it is the site's own answer, judged by
+        its status like any other response.
+        """
+        found = detect_interference(headers, html, status_code)
+        if found is None:
+            return None
+        if found.sign is InterferenceSign.PROXY_ERROR_PAGE:
+            return build_error(url, FailureKind.PROXY, detail=found.detail, proxy=proxy)
+        # The challenge error names the status; a response without one is incomplete.
+        if proxy is None or status_code is None:
+            return None
+        return build_error(url, FailureKind.BLOCKED, status_code=status_code)
+
+    async def _download(self, url: str, proxy: str | None, options: FetchOptions) -> ProbeResult:
+        """Download *url* over plain HTTP, reading the body whatever the status."""
+        return await probe(
             url,
             proxy=proxy,
             timeout_s=options.timeout_s,
             client_factory=self._http_client_factory,
             read_body=True,
         )
+
+    def _download_error(
+        self, url: str, proxy: str | None, downloaded: ProbeResult, options: FetchOptions
+    ) -> FetchError | None:
+        """Return the failure a download that failed on the way is reported as, if any."""
+        kind = downloaded.error_kind
+        if kind is not None and kind in _DOWNLOAD_PATH_FAILURES:
+            return build_error(
+                url,
+                kind,
+                detail=downloaded.error_detail,
+                timeout_s=options.timeout_s,
+                proxy=proxy,
+            )
+        html = None
+        if downloaded.body is not None and downloaded.is_html:
+            html = downloaded.body[:_ERROR_PAGE_SCAN_BYTES].decode("utf-8", errors="replace")
+        return self._interference_error(
+            url, proxy, downloaded.headers, html, downloaded.status_code
+        )
+
+    async def _downloaded_outcome(
+        self,
+        url: str,
+        proxy: str | None,
+        options: FetchOptions,
+        unusable: FetchError,
+        status_code: int | None,
+    ) -> FetchOutcome:
+        """Fetch *url* over plain HTTP because the browser could not use it.
+
+        A download that failed on the way (or that the proxy answered
+        itself) is reported as that failure, so it can be retried without
+        the proxy. Any other failed download is reported as *unusable*,
+        with the browser's *status_code*.
+        """
+        downloaded = await self._download(url, proxy, options)
+        error = self._download_error(url, proxy, downloaded, options)
+        if error is not None:
+            return self._failure(url, error, options, downloaded.status_code)
         if downloaded.ok and downloaded.body is not None:
-            return downloaded
-        return None
+            return await self._resource_outcome(url, downloaded, options)
+        return self._failure(url, unusable, options, status_code)
 
     async def _judge(
         self, url: str, proxy: str | None, result: Any, options: FetchOptions
     ) -> FetchOutcome:
         """Turn a crawl4ai result into an outcome (possibly via an HTTP download)."""
         status_code: int | None = getattr(result, "status_code", None)
+        headers: Mapping[str, Any] | None = getattr(result, "response_headers", None)
+        html: str | None = getattr(result, "html", None)
+        # Checked before success: crawl4ai's own anti-bot check marks a proxy's
+        # error page or a challenge (a 403/503 HTML page) as failed, but keeps
+        # its headers and HTML. A failure without a response has neither.
+        interference = self._interference_error(url, proxy, headers, html, status_code)
+        if interference is not None:
+            return self._failure(url, interference, options, status_code)
+
         if not getattr(result, "success", False):
             detail: str | None = getattr(result, "error_message", None)
             kind = classify_error_message(detail)
             if kind is FailureKind.NON_HTML:
-                downloaded = await self._download(url, proxy, options)
-                if downloaded is not None:
-                    return await self._resource_outcome(url, downloaded, options)
-                return self._failure(url, NonHtmlContentError(url, detail), options, status_code)
+                return await self._downloaded_outcome(
+                    url, proxy, options, NonHtmlContentError(url, detail), status_code
+                )
             error = self._classified_error(url, detail, proxy, options)
             return self._failure(url, error, options, status_code)
 
@@ -363,19 +452,15 @@ class Fetcher:
         if status_error is not None:
             return self._failure(url, status_error, options, status_code)
 
-        content_type = _header(getattr(result, "response_headers", None), "content-type")
+        content_type = _header(headers, "content-type")
         media_type = _media_type(content_type)
-        html: str | None = getattr(result, "html", None)
         if (
             media_type is not None
             and media_type not in _HTML_MEDIA_TYPES
             and not (html or "").strip()
         ):
-            downloaded = await self._download(url, proxy, options)
-            if downloaded is not None:
-                return await self._resource_outcome(url, downloaded, options)
-            return self._failure(
-                url, FetchError(url, "browser returned no HTML"), options, status_code
+            return await self._downloaded_outcome(
+                url, proxy, options, FetchError(url, "browser returned no HTML"), status_code
             )
 
         return self._page_outcome(url, result, status_code, content_type, options)

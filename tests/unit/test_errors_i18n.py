@@ -14,6 +14,7 @@ import pytest
 from babel.messages.pofile import read_po
 
 from crawl4tools.engine.errors import (
+    BlockedFetchError,
     BrowserNotInstalledError,
     ConnectionRefusedFetchError,
     FetchError,
@@ -22,6 +23,7 @@ from crawl4tools.engine.errors import (
     NameResolutionError,
     NonHtmlContentError,
     ProxyFetchError,
+    TlsFetchError,
 )
 from crawl4tools.engine.models import Note
 from crawl4tools.engine.naming import InvalidUrlError, validate_url
@@ -162,6 +164,34 @@ FETCH_ERROR_CASES = [
         {"proxy": REDACTED_PROXY, "url": URL},
         f"proxy connection failed ({REDACTED_PROXY}): {URL}",
         id="proxy",
+    ),
+    pytest.param(
+        TlsFetchError(URL),
+        "TLS error: {url}",
+        {"url": URL},
+        f"TLS error: {URL}",
+        id="tls-without-detail",
+    ),
+    pytest.param(
+        TlsFetchError(URL, "Error: Failed on navigating\nnet::ERR_SSL_PROTOCOL_ERROR at x"),
+        "TLS error: {summary}: {url}",
+        {"summary": "net::ERR_SSL_PROTOCOL_ERROR", "url": URL},
+        f"TLS error: net::ERR_SSL_PROTOCOL_ERROR: {URL}",
+        id="tls-with-net-error-summary",
+    ),
+    pytest.param(
+        TlsFetchError(URL, "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed"),
+        "TLS error: {summary}: {url}",
+        {"summary": "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed", "url": URL},
+        f"TLS error: [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: {URL}",
+        id="tls-with-httpx-summary",
+    ),
+    pytest.param(
+        BlockedFetchError(URL, 403),
+        "blocked by a bot challenge (HTTP {status_code}): {url}",
+        {"status_code": 403, "url": URL},
+        f"blocked by a bot challenge (HTTP 403): {URL}",
+        id="blocked",
     ),
     pytest.param(
         BrowserNotInstalledError(URL),
@@ -431,3 +461,35 @@ def test_japanese_invalid_url_error() -> None:
     with pytest.raises(InvalidUrlError) as info:
         validate_url("ftp://x")
     assert info.value.render(get_translator("ja")) == "http(s) の URL ではありません: ftp://x"
+
+
+def test_japanese_tls_error_with_a_summary() -> None:
+    error = TlsFetchError(URL, "Page.goto: net::ERR_SSL_PROTOCOL_ERROR at x")
+    assert error.render(get_translator("ja")) == (
+        f"TLS エラーが発生しました: net::ERR_SSL_PROTOCOL_ERROR: {URL}"
+    )
+
+
+def test_japanese_tls_error_without_a_summary() -> None:
+    assert TlsFetchError(URL).render(get_translator("ja")) == f"TLS エラーが発生しました: {URL}"
+
+
+def test_japanese_blocked_error() -> None:
+    error = BlockedFetchError(URL, 403)
+    assert error.render(get_translator("ja")) == (
+        f"ボット対策のチャレンジで拒否されました(HTTP 403): {URL}"
+    )
+
+
+def test_japanese_proxy_note_renders_a_quoted_tls_error_in_japanese() -> None:
+    note = Note(PROXY_NOTE, {"error": TlsFetchError(URL, "net::ERR_SSL_PROTOCOL_ERROR")})
+    assert note.render(get_translator("ja")) == (
+        "プロキシ経由で失敗しました(TLS エラーが発生しました: net::ERR_SSL_PROTOCOL_ERROR: "
+        f"{URL})。直接接続で再試行しました"
+    )
+
+
+def test_tls_and_blocked_errors_never_name_the_proxy() -> None:
+    for error in (TlsFetchError(URL, "net::ERR_SSL_PROTOCOL_ERROR"), BlockedFetchError(URL, 403)):
+        assert "proxy" not in error.params
+        assert "proxy" not in str(error)
