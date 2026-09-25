@@ -1,6 +1,6 @@
 # crawl4tools
 
-[日本語版 README はこちら](README_ja.md)
+[日本語版 README はこちら](https://github.com/xhighhongo41/crawl4tools/blob/main/README_ja.md)
 
 ## What is crawl4tools
 
@@ -292,4 +292,4 @@ This product includes software developed by UncleCode (https://x.com/unclecode) 
 
 ## License
 
-This project is licensed under the Apache License 2.0. See the [LICENSE](LICENSE) file for details.
+This project is licensed under the Apache License 2.0. See the [LICENSE](https://github.com/xhighhongo41/crawl4tools/blob/main/LICENSE) file for details.
