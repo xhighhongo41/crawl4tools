@@ -1,6 +1,6 @@
 [project]
 name = "crawl4tools"
-version = "0.4.0"
+version = "1.0.0b1"
 description = "Web crawler server for Open WebUI and MCP, plus a local download CLI, built on crawl4ai"
 readme = "README.md"
 license = "Apache-2.0"
@@ -9,7 +9,7 @@ requires-python = ">=3.11"
 authors = [{ name = "xhighhongo41" }]
 keywords = ["crawler", "crawl4ai", "open-webui", "mcp", "markdown", "scraping"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",

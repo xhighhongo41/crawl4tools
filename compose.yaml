@@ -14,7 +14,7 @@
 services:
   crawl4tools:
     build: .
-    image: crawl4tools:0.4.0
+    image: xhighhongo41/crawl4tools:1.0.0b1
     ports:
       - "8766:8766"
       - "8765:8765"

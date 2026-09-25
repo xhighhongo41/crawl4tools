@@ -12,7 +12,7 @@ crawl4tools is a web crawler built on top of the [crawl4ai](https://github.com/u
 
 ## Status
 
-**Alpha.** This release (0.4.0) provides the local CLI `crawl4cli`, the MCP server `crawl4mcp`, and the combined Open WebUI web loader + MCP server `crawl4server`, with a Dockerfile and compose file. All three commands can show their messages in English or Japanese.
+**Alpha.** This release (1.0.0b1) provides the local CLI `crawl4cli`, the MCP server `crawl4mcp`, and the combined Open WebUI web loader + MCP server `crawl4server`, with a Dockerfile and compose file. All three commands can show their messages in English or Japanese.
 
 ## Features
 

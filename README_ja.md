@@ -12,7 +12,7 @@ crawl4tools は [crawl4ai](https://github.com/unclecode/crawl4ai) ライブラ�
 
 ## 現状
 
-**Alpha。** このリリース(0.4.0)ではローカルCLI `crawl4cli`、MCPサーバー `crawl4mcp`、Open WebUI Web loader と MCP を兼ねる `crawl4server` が使えます。Dockerfile と compose ファイルも用意されています。メッセージは英語・日本語のどちらでも表示できます。
+**Alpha。** このリリース(1.0.0b1)ではローカルCLI `crawl4cli`、MCPサーバー `crawl4mcp`、Open WebUI Web loader と MCP を兼ねる `crawl4server` が使えます。Dockerfile と compose ファイルも用意されています。メッセージは英語・日本語のどちらでも表示できます。
 
 ## 機能
 
