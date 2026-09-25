@@ -415,6 +415,7 @@ def test_download_record_success_with_text() -> None:
         "status_code": 200,
         "error": None,
         "notes": ["kept full page"],
+        "file_url": None,
     }
 
 
@@ -467,6 +468,49 @@ def test_download_record_explicit_error_overrides_outcome_error() -> None:
     )
     assert record["ok"] is False
     assert record["error"] == "disk full while writing file"
+
+
+FILE_URL = "http://mcp.example:8765/files/abc123"
+
+
+def test_download_record_keeps_the_file_url_when_saved() -> None:
+    outcome = _ok_text_outcome()
+    record = download_record(outcome, outcome.url, Path("/d/e.md"), ENGLISH, file_url=FILE_URL)
+    assert record["file_url"] == FILE_URL
+
+
+@pytest.mark.parametrize(
+    ("path", "error"),
+    [(None, None), (Path("/d/e.md"), "disk full while writing file")],
+    ids=["not-written", "write-error"],
+)
+def test_download_record_drops_the_file_url_when_not_saved(
+    path: Path | None, error: str | None
+) -> None:
+    outcome = _ok_text_outcome()
+    record = download_record(outcome, outcome.url, path, ENGLISH, error=error, file_url=FILE_URL)
+    assert record["ok"] is False
+    assert record["file_url"] is None
+
+
+def test_download_record_drops_the_file_url_when_the_fetch_failed() -> None:
+    outcome = FetchOutcome(
+        url="https://bad.example/", ok=False, error=HttpStatusError("https://bad.example/", 500)
+    )
+    record = download_record(outcome, outcome.url, Path("/d/e.md"), ENGLISH, file_url=FILE_URL)
+    assert record["file_url"] is None
+
+
+def test_download_lines_add_the_file_line_after_saved() -> None:
+    outcome = _ok_text_outcome(notes=[Note("saved the full page")])
+    record = download_record(
+        outcome, "https://example.com/", Path("/d/e.md"), ENGLISH, file_url=FILE_URL
+    )
+    assert download_lines(record, ENGLISH) == [
+        "note: https://example.com/: saved the full page",
+        f"saved: https://example.com/ -> /d/e.md ({len(b'# Hello')} bytes)",
+        f"file: {FILE_URL}",
+    ]
 
 
 def test_download_lines_success_no_notes() -> None:
@@ -710,6 +754,17 @@ def test_download_lines_in_japanese_keep_english_prefixes() -> None:
     assert download_lines(record, JA) == [
         f"note: https://example.com/: {KEPT_NOTHING_JA}",
         "saved: https://example.com/ -> /d/e.md(7 バイト)",
+    ]
+
+
+def test_download_lines_file_line_keeps_the_english_prefix_in_japanese() -> None:
+    outcome = _ok_text_outcome()
+    record = download_record(
+        outcome, "https://example.com/", Path("/d/e.md"), JA, file_url=FILE_URL
+    )
+    assert download_lines(record, JA) == [
+        "saved: https://example.com/ -> /d/e.md(7 バイト)",
+        f"file: {FILE_URL}",
     ]
 
 

@@ -6,9 +6,11 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+import httpx2
 import pytest
 from conftest import FakeCrawler, FakeHttp, make_result
 from mcp.client.client import Client
+from mcp.client.streamable_http import streamable_http_client
 from mcp.server.mcpserver import MCPServer
 from mcp.types import CallToolResult, ImageContent, TextContent
 
@@ -16,6 +18,7 @@ from crawl4tools.engine.fetcher import Fetcher
 from crawl4tools.engine.models import FetchOptions
 from crawl4tools.engine.naming import filename_for
 from crawl4tools.server import ServerSettings, build_server, fetch_all, open_state
+from crawl4tools.server.files import FileRegistry
 from crawl4tools.server.mcp_server import ServerState
 
 URL = "https://example.com/page"
@@ -398,6 +401,7 @@ async def test_download_markdown(tmp_path: Path) -> None:
     assert record["ok"] is True
     assert record["path"] == str(path)
     assert record["bytes"] == len("# Hello")
+    assert record["file_url"] is None
     assert data["directory"] == str(tmp_path.resolve())
     assert data["duplicates"] == []
     lines = texts(result)[0].splitlines()
@@ -500,7 +504,80 @@ async def test_download_duplicates_and_same_name(tmp_path: Path) -> None:
     assert len(crawler.calls) == 2
 
 
+async def test_download_in_memory_has_no_file_url(tmp_path: Path) -> None:
+    crawler = FakeCrawler({URL: make_result(status_code=404), URL2: make_result()})
+    server, _, _ = make_server(tmp_path, crawler=crawler)
+    result = await call(server, "download", {"urls": [URL, URL2]})
+    assert [record["file_url"] for record in structured(result)["files"]] == [None, None]
+    assert not any(line.startswith("file:") for line in texts(result)[0].splitlines())
+
+
+@pytest.mark.parametrize(
+    ("headers", "base"),
+    [
+        ({}, "http://testserver"),
+        (
+            {"x-forwarded-proto": "https", "x-forwarded-host": "tools.example"},
+            "https://tools.example",
+        ),
+    ],
+    ids=["host", "forwarded"],
+)
+async def test_download_over_http_returns_a_file_url(
+    tmp_path: Path, headers: dict[str, str], base: str
+) -> None:
+    crawler = FakeCrawler({URL: make_result(), URL2: make_result(status_code=404)})
+    server, _, _ = make_server(tmp_path, crawler=crawler)
+    app = server.streamable_http_app(host="testserver")
+    async with (
+        server.session_manager.run(),
+        httpx2.AsyncClient(
+            transport=httpx2.ASGITransport(app=app), base_url="http://testserver", headers=headers
+        ) as http,
+    ):
+        async with Client(
+            streamable_http_client("http://testserver/mcp", http_client=http)
+        ) as client:
+            result = await client.call_tool("download", {"urls": [URL, URL2]})
+        assert not result.is_error
+        saved, failed = structured(result)["files"]
+        file_url = saved["file_url"]
+        assert isinstance(file_url, str)
+        prefix = f"{base}/files/"
+        assert file_url.startswith(prefix)
+        assert len(file_url.removeprefix(prefix)) >= 32
+        assert failed["file_url"] is None
+        path = tmp_path.resolve() / filename_for(URL, ".md")
+        assert texts(result)[0].splitlines()[:2] == [
+            f"saved: {URL} -> {path} (7 bytes)",
+            f"file: {file_url}",
+        ]
+        # Fetch the file back through the same app, whatever the public base URL.
+        response = await http.get(file_url.replace(base, "http://testserver", 1))
+    assert response.status_code == 200
+    assert response.content == path.read_bytes() == b"# Hello"
+    assert filename_for(URL, ".md") in response.headers["content-disposition"]
+
+
 # --- shared state (open_state / build_server(state=) / fetch_all) ----------------
+
+
+async def test_open_state_creates_a_file_registry_for_the_download_root(tmp_path: Path) -> None:
+    settings = ServerSettings(download_root=tmp_path)
+    async with open_state(settings, fake_factory(FakeCrawler())) as state:
+        assert isinstance(state.files, FileRegistry)
+        path = tmp_path / "page.md"
+        path.write_bytes(b"x")
+        assert state.files.lookup(state.files.register(path)) == path.resolve()
+        outside = tmp_path.parent / f"{tmp_path.name}-outside.md"
+        assert state.files.lookup(state.files.register(outside)) is None
+
+
+async def test_open_state_uses_the_given_file_registry(tmp_path: Path) -> None:
+    settings = ServerSettings(download_root=tmp_path)
+    registry = FileRegistry(tmp_path)
+    async with open_state(settings, fake_factory(FakeCrawler()), files=registry) as state:
+        assert state.files is registry
 
 
 def fake_factory(crawler: FakeCrawler) -> Any:
@@ -624,7 +701,10 @@ EN_DESCRIPTIONS = {
         "PDF, PNG screenshot, MHTML, and the raw source. PDFs are transcribed to "
         "Markdown unless format is 'raw'; non-web content (images, archives, ...) is "
         "saved as served. Existing files are overwritten. The call fails only if no "
-        "file was saved."
+        "file was saved. When the server is reached over HTTP, each saved file also has a "
+        "`file_url`; fetch it (for example `curl -o <name> <file_url>`) to save the file "
+        "on your own machine without passing its content through the conversation. Over "
+        "stdio the server runs on your machine, so the returned paths are local."
     ),
 }
 EN_PARAMETERS = {
@@ -662,6 +742,8 @@ EN_INSTRUCTIONS_7 = (
     "screenshot. "
     "`download` saves files in any format (including PDF, MHTML, and the raw "
     "source) into a directory on the server and returns their paths. "
+    "Over HTTP, `download` also returns a `file_url` per file to fetch it from the "
+    "server (e.g. with curl). "
     "PDFs are transcribed to Markdown. Duplicate URLs are fetched once. "
     "At most 7 URLs per call."
 )
@@ -682,7 +764,10 @@ JA_DESCRIPTIONS = {
         "MHTML、元のソースに対応します。PDF は format が 'raw' でなければ Markdown に書き起こし"
         "ます。Web ページ以外の内容(画像、アーカイブなど)は配信されたまま保存します。既存の"
         "ファイルは上書きします。呼び出しが失敗になるのは、ファイルを 1 つも保存できなかった"
-        "ときだけです。"
+        "ときだけです。サーバーに HTTP で接続しているときは、保存した各ファイルに `file_url` "
+        "も付きます。これを取得すると(例: `curl -o <name> <file_url>`)、内容を会話に通さずに"
+        "手元のマシンにファイルを保存できます。stdio ではサーバーが手元のマシンで動いているので、"
+        "返されるパスはローカルのパスです。"
     ),
 }
 JA_PARAMETERS = {
@@ -722,6 +807,8 @@ JA_INSTRUCTIONS_7 = (
     "crawl4ai を使った Web 取得ツールです。`fetch` はページの内容を直接返します(既定は "
     "Markdown で、HTML や PNG のスクリーンショットも選べます)。`download` は任意の形式(PDF、"
     "MHTML、元のソースを含む)のファイルをサーバー上のディレクトリに保存し、そのパスを返します。"
+    "HTTP 接続では、`download` はファイルごとにサーバーから取得するための `file_url` も返します"
+    "(curl などで取得できます)。"
     "PDF は Markdown に書き起こします。重複した URL は 1 回だけ取得します。1 回の呼び出しで"
     "指定できる URL は最大 7 件です。"
 )
@@ -750,6 +837,7 @@ FILE_KEYS = {
     "status_code",
     "error",
     "notes",
+    "file_url",
 }
 
 

@@ -9,6 +9,7 @@ import time
 from collections.abc import Iterator
 from pathlib import Path
 
+import httpx
 import pytest
 from mcp.client.client import Client
 from mcp.client.stdio import StdioServerParameters
@@ -119,3 +120,20 @@ async def test_http_fetch_screenshot_returns_image(http_server: str) -> None:
         )
     assert result.is_error is False
     assert [block.type for block in result.content] == ["image"]
+
+
+async def test_http_download_returns_a_file_url(http_server: str, tmp_path: Path) -> None:
+    async with Client(http_server) as client:
+        result = await client.call_tool("download", {"urls": ["https://example.com/"]})
+    assert result.is_error is False
+    assert result.structured_content is not None
+    record = result.structured_content["files"][0]
+    file_url = record["file_url"]
+    assert file_url.startswith(http_server.removesuffix("/mcp") + "/files/")
+    assert f"file: {file_url}" in _text(result)
+    response = httpx.get(file_url, timeout=30)
+    assert response.status_code == 200
+    saved = Path(record["path"])
+    assert saved.parent == tmp_path.resolve()
+    assert response.content == saved.read_bytes()
+    assert b"Example Domain" in response.content
