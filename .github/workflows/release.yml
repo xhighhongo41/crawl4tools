@@ -49,6 +49,7 @@ jobs:
       tag: ${{ steps.check.outputs.tag }}
       is_prerelease: ${{ steps.check.outputs.is_prerelease }}
       dry_run: ${{ steps.check.outputs.dry_run }}
+      description: ${{ steps.check.outputs.description }}
     steps:
       - uses: actions/checkout@v7
       # setup-uv publishes full version tags only (no floating v10 tag). No cache
@@ -86,6 +87,15 @@ jobs:
           print("true" if version.is_prerelease else "false")
           ' "$version")"
           tag="v$version"
+
+          # Docker Hub's short description (the same text PyPI shows), read straight
+          # from pyproject.toml so it never drifts from the package metadata.
+          description="$(uv run --no-project --isolated python -c '
+          import tomllib
+
+          with open("pyproject.toml", "rb") as f:
+              print(tomllib.load(f)["project"]["description"])
+          ')"
 
           dry_run=false
           if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "$DRY_RUN_INPUT" == true ]]; then
@@ -126,6 +136,7 @@ jobs:
             echo "tag=$tag"
             echo "is_prerelease=$is_prerelease"
             echo "dry_run=$dry_run"
+            echo "description=$description"
           } >>"$GITHUB_OUTPUT"
           echo "version $version, tag $tag, pre-release $is_prerelease, dry run $dry_run"
 
@@ -253,6 +264,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      # Only needed for the Docker Hub overview update below (the file it reads).
+      - uses: actions/checkout@v7
       - name: Download the digests
         uses: actions/download-artifact@v8
         with:
@@ -319,6 +332,18 @@ jobs:
             fi
           done
           exit "$status"
+      # Best-effort: keeps the Docker Hub repository page in sync with this
+      # release, but a failure here must never fail the release itself.
+      - name: Update the Docker Hub description
+        uses: peter-evans/dockerhub-description@v5
+        continue-on-error: true
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: xhighhongo41/crawl4tools
+          short-description: ${{ needs.verify.outputs.description }}
+          readme-filepath: ./.github/dockerhub-overview.md
+          enable-url-completion: true
 
   assets:
     needs: [verify, build]

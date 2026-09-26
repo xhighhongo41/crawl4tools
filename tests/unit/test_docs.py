@@ -1,18 +1,21 @@
 """Documentation invariants checked against the actual click commands.
 
 These tests read README.md and README_ja.md as plain text; they have no
-effect on the running commands and take no network access. Two things are
-checked: (1) the ``compose.yaml`` block quoted in the "Docker" section of
-each README is a byte-for-byte copy of the repository's compose.yaml, and
-(2) every command-line option of the three commands (except ``--help`` and
-``--version``, which are not settings) is documented, with its environment
-variable, in the right Options table of both READMEs, and the config file
-keys of crawl4mcp/crawl4server are listed in the same table.
+effect on the running commands and take no network access. Checked here:
+(1) the ``compose.yaml`` block quoted in the "Docker" section of each
+README, and in the Docker Hub overview, is a byte-for-byte copy of the
+repository's compose.yaml; (2) every command-line option of the three
+commands (except ``--help`` and ``--version``, which are not settings) is
+documented, with its environment variable, in the right Options table of
+both READMEs, and the config file keys of crawl4mcp/crawl4server are
+listed in the same table; and (3) the Docker Hub overview and the
+package's ``description`` meet Docker Hub / PyPI's own constraints.
 """
 
 from __future__ import annotations
 
 import re
+import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -29,6 +32,16 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 README_EN = REPO_ROOT / "README.md"
 README_JA = REPO_ROOT / "README_ja.md"
 COMPOSE_YAML = REPO_ROOT / "compose.yaml"
+DOCKERHUB_OVERVIEW = REPO_ROOT / ".github" / "dockerhub-overview.md"
+PYPROJECT = REPO_ROOT / "pyproject.toml"
+
+# Docker Hub truncates a repository's short description past this many characters.
+_DOCKERHUB_SHORT_DESCRIPTION_LIMIT = 100
+
+# A Markdown link whose target is not an absolute URL, e.g. "[x](./foo.md)" or
+# "[x](#section)"; the Docker Hub overview is read on its own, without the rest
+# of the repository, so every link in it must be absolute.
+_RELATIVE_LINK_RE = re.compile(r"\]\((?!https?://)")
 
 _COMPOSE_MARKER = "<!-- compose.yaml -->"
 
@@ -203,6 +216,13 @@ def test_readme_compose_yaml_block_matches_compose_yaml() -> None:
         assert block == expected, f"{readme_path.name}: compose.yaml block is out of date"
 
 
+def test_dockerhub_overview_compose_yaml_block_matches_compose_yaml() -> None:
+    """The Docker Hub overview quotes compose.yaml verbatim too."""
+    expected = COMPOSE_YAML.read_text(encoding="utf-8").strip()
+    block = compose_yaml_block(DOCKERHUB_OVERVIEW.read_text(encoding="utf-8")).strip()
+    assert block == expected, "dockerhub-overview.md: compose.yaml block is out of date"
+
+
 # --- tests: every option is documented, with its environment variable -----------
 
 
@@ -231,3 +251,23 @@ def test_every_config_key_is_listed_in_the_options_table(doc: CommandDoc) -> Non
             assert f"`{key}`" in table_text, (
                 f"{readme_path.name}: {doc.label}'s Options table does not list config key '{key}'"
             )
+
+
+# --- tests: Docker Hub / PyPI metadata ------------------------------------------
+
+
+def test_pyproject_description_fits_the_dockerhub_short_description() -> None:
+    """Docker Hub reuses ``description`` as the repository's short description."""
+    with PYPROJECT.open("rb") as f:
+        description = tomllib.load(f)["project"]["description"]
+    assert len(description) <= _DOCKERHUB_SHORT_DESCRIPTION_LIMIT, (
+        f"pyproject.toml: description is {len(description)} characters, "
+        f"over Docker Hub's {_DOCKERHUB_SHORT_DESCRIPTION_LIMIT}-character limit"
+    )
+
+
+def test_dockerhub_overview_has_no_relative_links() -> None:
+    """The overview is read on Docker Hub alone, so every link must be absolute."""
+    text = DOCKERHUB_OVERVIEW.read_text(encoding="utf-8")
+    relative = _RELATIVE_LINK_RE.findall(text)
+    assert relative == [], "dockerhub-overview.md: has a relative Markdown link"
