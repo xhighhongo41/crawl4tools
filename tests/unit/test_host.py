@@ -29,6 +29,7 @@ from crawl4tools.server import (
 )
 from crawl4tools.server import host as host_module
 from crawl4tools.server.host import serve_async
+from crawl4tools.server.settings import LogLevel
 
 URL = "https://example.com/page"
 URL2 = "https://example.com/other"
@@ -529,3 +530,66 @@ async def test_serve_async_limits_the_graceful_shutdown(monkeypatch: pytest.Monk
     )
     assert host_module.GRACEFUL_SHUTDOWN_S == 5
     assert [config.timeout_graceful_shutdown for config in configs] == [5]
+
+
+@pytest.mark.parametrize(
+    ("log_level", "uvicorn_level", "access_log"),
+    [("debug", "info", True), ("info", "warning", False), ("error", "warning", False)],
+    ids=["debug", "info", "error"],
+)
+async def test_serve_async_log_level_sets_uvicorn_logging(
+    monkeypatch: pytest.MonkeyPatch, log_level: LogLevel, uvicorn_level: str, access_log: bool
+) -> None:
+    configs: list[uvicorn.Config] = []
+
+    class RecordingConfig(uvicorn.Config):
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            super().__init__(*args, **kwargs)
+            configs.append(self)
+
+    monkeypatch.setattr(uvicorn, "Config", RecordingConfig)
+
+    def on_started(server: uvicorn.Server, ports: dict[str, int]) -> None:
+        server.should_exit = True
+
+    fake = FakeCrawler()
+
+    def factory(options: FetchOptions) -> Fetcher:
+        return Fetcher(options, crawler_factory=fake.factory, http_client_factory=FakeHttp())
+
+    await asyncio.wait_for(
+        serve_async(
+            ServerSettings(log_level=log_level),
+            LoaderSettings(),
+            McpSettings(),
+            host="127.0.0.1",
+            loader_port=0,
+            mcp_port=0,
+            log_level=log_level,
+            fetcher_factory=factory,
+            on_started=on_started,
+        ),
+        TIMEOUT,
+    )
+    assert [(config.log_level, config.access_log) for config in configs] == [
+        (uvicorn_level, access_log)
+    ]
+
+
+def test_serve_passes_the_log_level_to_serve_async(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[dict[str, Any]] = []
+
+    async def fake_serve_async(*args: Any, **kwargs: Any) -> None:
+        calls.append(kwargs)
+
+    monkeypatch.setattr(host_module, "serve_async", fake_serve_async)
+    host_module.serve(
+        ServerSettings(),
+        LoaderSettings(),
+        McpSettings(),
+        host="127.0.0.1",
+        loader_port=0,
+        mcp_port=0,
+        log_level="error",
+    )
+    assert [call["log_level"] for call in calls] == ["error"]

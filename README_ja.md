@@ -12,7 +12,7 @@ crawl4tools は [crawl4ai](https://github.com/unclecode/crawl4ai) ライブラ�
 
 ## 現状
 
-**Beta。** このリリース(1.0.0b2)は crawl4tools のベータ版で、[PyPI](https://pypi.org/project/crawl4tools/) と [Docker Hub](https://hub.docker.com/r/xhighhongo41/crawl4tools) で公開されています。ローカルCLI `crawl4cli`、MCPサーバー `crawl4mcp`、Open WebUI Web loader と MCP を兼ねる `crawl4server` が使え、Dockerfile と compose ファイルも用意されています。メッセージは英語・日本語のどちらでも表示できます。実際に使ってみたフィードバックを歓迎します([Issuesページ](https://github.com/xhighhongo41/crawl4tools/issues)へどうぞ)。このベータ版でのテストを経て、1.0.0 の正式版を予定しています。
+**Beta。** このリリース(1.0.0b3)は crawl4tools のベータ版で、[PyPI](https://pypi.org/project/crawl4tools/) と [Docker Hub](https://hub.docker.com/r/xhighhongo41/crawl4tools) で公開されています。ローカルCLI `crawl4cli`、MCPサーバー `crawl4mcp`、Open WebUI Web loader と MCP を兼ねる `crawl4server` が使え、Dockerfile と compose ファイルも用意されています。メッセージは英語・日本語のどちらでも表示できます。実際に使ってみたフィードバックを歓迎します([Issuesページ](https://github.com/xhighhongo41/crawl4tools/issues)へどうぞ)。このベータ版でのテストを経て、1.0.0 の正式版を予定しています。
 
 ## 機能
 
@@ -141,7 +141,8 @@ Open WebUI はこのURLに `{"urls": [...]}` をPOSTし、`{"page_content": <Mar
 | `-j, --concurrency N` | `CRAWL4SERVER_CONCURRENCY` | `concurrency` | `3` | 両ポートを通じて同時に取得するURL数の上限 |
 | `--max-urls N` | `CRAWL4SERVER_MAX_URLS` | `max_urls` | `20` | 1回のWeb loaderリクエストまたはMCPツール呼び出しで受け付けるURL数の上限。Open WebUI は最大20件を送るため、20以上に保つ |
 | `--download-dir DIR` | `CRAWL4SERVER_DOWNLOAD_DIR` | `download_dir` | `.` | MCPの `download` ツールの保存先ルートディレクトリ |
-| `-v, --verbose` | `CRAWL4SERVER_VERBOSE` | `verbose` | 無効 | 標準エラーへの詳細ログ出力 |
+| `--log-level LEVEL` | `CRAWL4SERVER_LOG_LEVEL` | `log_level` | `info` | 標準エラーへのログレベル: `debug`(crawl4ai と uvicorn のアクセスログを含むすべて)、`info`(各取得、警告、エラー)、`error`(警告とエラーのみ) |
+| `--keep-downloads` | `CRAWL4SERVER_KEEP_DOWNLOADS` | `keep_downloads` | 無効 | MCPの `download` ツールが保存したファイルを、クライアントが `file_url` から取得した後もサーバーに残す(既定では取得後にサーバー側のコピーを削除する) |
 | `--lang en\|ja` | `CRAWL4SERVER_LANG` | `lang` | `en` | サーバーが動作中に出力するメッセージの言語([メッセージの言語](#メッセージの言語)を参照) |
 | `--config FILE` | `CRAWL4SERVER_CONFIG` | — | *(なし)* | YAMLまたはJSONの設定ファイル(下記の[設定](#設定)を参照) |
 
@@ -157,6 +158,7 @@ mcp_port: 8765
 max_urls: 20
 concurrency: 3
 lang: ja
+log_level: info
 ```
 
 同じ内容をJSONで書くと:
@@ -169,7 +171,8 @@ lang: ja
   "mcp_port": 8765,
   "max_urls": 20,
   "concurrency": 3,
-  "lang": "ja"
+  "lang": "ja",
+  "log_level": "info"
 }
 ```
 
@@ -185,7 +188,9 @@ docker compose up -d
 curl http://localhost:8766/health
 ```
 
-compose を使わずに同じイメージを直接取得することもできます: `docker pull xhighhongo41/crawl4tools:1.0.0b2`。ベータ版には `latest` タグが付かないため、必ずバージョンタグを指定してください。取得せずローカルでビルドする場合は、`docker build -t xhighhongo41/crawl4tools:1.0.0b2 .` を実行してから `docker compose up -d` してください。
+`docker logs <container>` の最初の行には実行中のバージョンが表示されます(例: `crawl4server 1.0.0b3 (crawl4ai 0.9.4, mcp 2.2.0, starlette 1.7.0)`)。
+
+compose を使わずに同じイメージを直接取得することもできます: `docker pull xhighhongo41/crawl4tools:1.0.0b3`。ベータ版には `latest` タグが付かないため、必ずバージョンタグを指定してください。取得せずローカルでビルドする場合は、`docker build -t xhighhongo41/crawl4tools:1.0.0b3 .` を実行してから `docker compose up -d` してください。
 
 compose ファイルそのもの(コメントは英語のままです):
 
@@ -194,8 +199,8 @@ compose ファイルそのもの(コメントは英語のままです):
 # crawl4tools server (crawl4server): Open WebUI external web loader + MCP.
 #
 # The image is pulled from Docker Hub; `docker compose up -d` fetches
-# xhighhongo41/crawl4tools:1.0.0b2. To build locally instead, run
-# `docker build -t xhighhongo41/crawl4tools:1.0.0b2 .` first.
+# xhighhongo41/crawl4tools:1.0.0b3. To build locally instead, run
+# `docker build -t xhighhongo41/crawl4tools:1.0.0b3 .` first.
 #
 # Open WebUI: Admin Settings > Web Search > Web Loader Engine = "external",
 # URL = http://<host>:8766/crawl (or http://crawl4tools:8766/crawl when
@@ -210,7 +215,7 @@ compose ファイルそのもの(コメントは英語のままです):
 
 services:
   crawl4tools:
-    image: xhighhongo41/crawl4tools:1.0.0b2
+    image: xhighhongo41/crawl4tools:1.0.0b3
     ports:
       - "8766:8766"
       - "8765:8765"
@@ -226,6 +231,8 @@ services:
       # CRAWL4SERVER_MAX_URLS: "20"
       # CRAWL4SERVER_TIMEOUT: "60"
       # CRAWL4SERVER_LANG: ja
+      # CRAWL4SERVER_LOG_LEVEL: debug
+      # CRAWL4SERVER_KEEP_DOWNLOADS: "true"
     volumes:
       # Host directory for downloaded/converted output; create it first
       # (mkdir -p downloads) and make sure uid 1000 can write to it.
@@ -236,7 +243,7 @@ services:
     restart: unless-stopped
 ```
 
-- `image`: このリリースのタグが付いた公開Dockerイメージ(`xhighhongo41/crawl4tools:1.0.0b2`)。ローカルビルドを使う場合は、上記の `docker build` コマンドを先に実行してから `docker compose up -d` してください。
+- `image`: このリリースのタグが付いた公開Dockerイメージ(`xhighhongo41/crawl4tools:1.0.0b3`)。ローカルビルドを使う場合は、上記の `docker build` コマンドを先に実行してから `docker compose up -d` してください。
 - `ports`: `8766` は Open WebUI Web loader、`8765` は MCP。どちらか一方だけを公開するには、不要な行を削除するか(あるいはネットワークに一切出さないよう `"127.0.0.1:8765:8765"` のように `127.0.0.1` にバインドしてください)。
 - `environment`: 有効にしたい行のコメントを外してください。Open WebUI の External Web Loader API Key に設定した値を `CRAWL4SERVER_LOADER_API_KEY` に設定してください。他の `CRAWL4SERVER_*` 変数は上記のオプション表を参照してください。
 - `volumes`: 先にホスト側の `downloads/` ディレクトリを作成し(上記の `mkdir -p downloads`)、コンテナ実行ユーザーである uid 1000 が書き込めるようにしてください。
@@ -300,7 +307,7 @@ Streamable HTTP に対応する他のクライアント(例: Open WebUI の MCP�
 
 複数URLを指定した場合、各結果の先頭に `<!-- crawl4tools: url=... status=... -->` という行が付きます。失敗したURLは代わりに `error: ...` という行で報告され、呼び出し自体が失敗になるのは全URLが失敗したときだけです。プロキシのフォールバックなどの注記は `<!-- note: ... -->` という行で示されます。`download` は保存先に既存のファイルがあれば上書きします。
 
-HTTP(`--transport http` または `crawl4server`)経由の場合、`download` が保存した各ファイルには `file_url` も付き、同じポートの `/files/<token>` で配信されます。例えば `curl -o <name> <file_url>` で自分のマシンに保存でき、内容が会話を経由することはありません。stdio の場合はサーバーがクライアントと同じマシンで動くため、返されたパスをそのまま使えます。`file_url` はサーバーを再起動すると無効になります(トークンが失われるため)。ただしファイル自体は残ります。
+HTTP(`--transport http` または `crawl4server`)経由の場合、`download` が保存した各ファイルには `file_url` も付き、同じポートの `/files/<token>` で配信されます。例えば `curl -o <name> <file_url>` で自分のマシンに保存でき、内容が会話を経由することはありません。stdio の場合はサーバーがクライアントと同じマシンで動くため、返されたパスをそのまま使えます。クライアントが `file_url` の内容を最後まで取得し終えると(`HEAD` リクエストや `Range` 指定の部分取得は対象外)、サーバーは自分が持つそのファイルのコピーを削除しトークンを忘れるため、各 `file_url` は原則1回しか使えません。`--keep-downloads` を付けて起動すると、1.0.0b2 以前と同様にファイルとトークンの両方が取得後も残り、繰り返し取得できます。また `file_url` はサーバーを再起動しても無効になります(いずれの場合もトークンが失われるため)。ただし `--keep-downloads` のときはファイル自体は残ります。stdio には `/files` エンドポイントが無いため、ファイルが削除されることはなく、返されたパスがそのまま唯一の成果物です。
 
 `fetch` の構造化結果では、ページ本文が `pages[i].text` にも入っており、`content` ブロックの同じ本文と重複しています。`structuredContent` の方を見るクライアント(Claude Code はそうします)でも本文を取得できます。Claude Code は MCP の結果が 25,000 トークン(`MAX_MCP_OUTPUT_TOKENS`)を超えるとファイルに退避するため、長いページでは `download` を使うとこのやり取りを避けられます。
 
@@ -320,7 +327,8 @@ HTTP(`--transport http` または `crawl4server`)経由の場合、`download` �
 | `-j, --concurrency N` | `CRAWL4MCP_CONCURRENCY` | `concurrency` | `3` | 全ツール呼び出しを通じて同時に取得するURL数の上限 |
 | `--max-urls N` | `CRAWL4MCP_MAX_URLS` | `max_urls` | `20` | 1回の呼び出しで受け付けるURL数の上限 |
 | `--download-dir DIR` | `CRAWL4MCP_DOWNLOAD_DIR` | `download_dir` | `.` | `download` ツールの保存先ルートディレクトリ |
-| `-v, --verbose` | `CRAWL4MCP_VERBOSE` | `verbose` | 無効 | 標準エラーへの詳細ログ出力 |
+| `--log-level LEVEL` | `CRAWL4MCP_LOG_LEVEL` | `log_level` | `info` | 標準エラーへのログレベル: `debug`(crawl4ai と uvicorn のアクセスログを含むすべて)、`info`(各取得、警告、エラー)、`error`(警告とエラーのみ) |
+| `--keep-downloads` | `CRAWL4MCP_KEEP_DOWNLOADS` | `keep_downloads` | 無効 | `download` ツールが保存したファイルを、クライアントが `file_url` から取得した後もサーバーに残す(既定では取得後にサーバー側のコピーを削除する) |
 | `--lang en\|ja` | `CRAWL4MCP_LANG` | `lang` | `en` | サーバーが動作中に出力するメッセージの言語([メッセージの言語](#メッセージの言語)を参照) |
 | `--config FILE` | `CRAWL4MCP_CONFIG` | — | *(なし)* | YAMLまたはJSONの設定ファイル(下記の[設定](#設定-1)を参照) |
 
@@ -337,6 +345,7 @@ concurrency: 5
 download_dir: ./downloads
 proxy: http://proxy.local:8080
 lang: ja
+log_level: info
 ```
 
 同じ内容をJSONで書くと:
@@ -350,15 +359,16 @@ lang: ja
   "concurrency": 5,
   "download_dir": "./downloads",
   "proxy": "http://proxy.local:8080",
-  "lang": "ja"
+  "lang": "ja",
+  "log_level": "info"
 }
 ```
 
 ### セキュリティ
 
-Streamable HTTP トランスポートには認証機能がありません。既定ではサーバーは `127.0.0.1` のみで待ち受けますが、他のホストにバインドすると、そのポートに到達できる誰もがサーバーを利用できてしまいます。この場合 `crawl4mcp` は起動時に標準エラーへ警告を出力します。stdioモードでは標準出力はMCPプロトコル専用であり、ログはすべて標準エラーに出力されます。
+Streamable HTTP トランスポートには認証機能がありません。既定ではサーバーは `127.0.0.1` のみで待ち受けますが、他のホストにバインドすると、そのポートに到達できる誰もがサーバーを利用できてしまいます。この場合 `crawl4mcp` は起動時に標準エラーへ警告を出力します。stdioモードでは標準出力はMCPプロトコル専用であり、ログはすべて標準エラーに、`--log-level`(既定 `info`。1件取得するごとに1行、加えて警告・エラー)で決まるレベルで出力されます。
 
-`/files/<token>`(前述の[ツール](#ツール)を参照)は、`download` が保存したファイルを MCP と同じポートで配信します。トークンは推測できない乱数ですが、ポート自体には認証機能がないため、MCPポートを信頼できるネットワークの外に公開しないでください。
+`/files/<token>`(前述の[ツール](#ツール)を参照)は、`download` が保存したファイルを MCP と同じポートで配信します。トークンは推測できない乱数ですが、ポート自体には認証機能がないため、MCPポートを信頼できるネットワークの外に公開しないでください。既定では、クライアントがファイルを `file_url` から最後まで取得し終えた時点でサーバーはそのファイルを削除します。ファイルとトークンの両方を取得後も残したい場合は `--keep-downloads` を付けてください。
 
 ## メッセージの言語
 

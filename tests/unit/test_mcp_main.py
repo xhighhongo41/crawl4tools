@@ -48,6 +48,11 @@ def invoke(args: list[str], **kwargs: Any) -> Any:
     return CliRunner().invoke(mcp_main.main, args, **kwargs)
 
 
+def version_line() -> str:
+    """Return the first line of ``crawl4mcp --version``, printed first on every start."""
+    return mcp_main.version_text().splitlines()[0]
+
+
 # --- --version -----------------------------------------------------------------
 
 
@@ -55,7 +60,7 @@ def test_version_shows_versions_and_attribution() -> None:
     result = CliRunner().invoke(mcp_main.main, ["--version"])
     assert result.exit_code == 0
     first_line = result.output.splitlines()[0]
-    assert first_line.startswith("crawl4mcp 1.0.0b2 (crawl4ai 0.9.")
+    assert first_line.startswith("crawl4mcp 1.0.0b3 (crawl4ai 0.9.")
     assert ", mcp 2." in first_line
     assert "UncleCode" in result.output
 
@@ -78,6 +83,9 @@ def test_defaults_are_stdio_and_settings_defaults(
     assert result.exit_code == 0, result.output
     assert captured["settings"] == ServerSettings(download_root=tmp_path.resolve())
     assert fake.run_calls == [{"transport": "stdio"}]
+    # stdio prints nothing but the version line on stderr, and nothing on stdout.
+    assert result.stderr.splitlines() == [version_line()]
+    assert result.stdout == ""
 
 
 # --- http options ------------------------------------------------------------
@@ -100,7 +108,10 @@ def test_http_options_passed_through_and_serving_line(
             "streamable_http_path": "/mcp2",
         }
     ]
-    assert "crawl4mcp: serving MCP on http://127.0.0.1:9001/mcp2" in result.stderr
+    assert result.stderr.splitlines() == [
+        version_line(),
+        "crawl4mcp: serving MCP on http://127.0.0.1:9001/mcp2",
+    ]
 
 
 def test_path_must_start_with_slash(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -122,12 +133,16 @@ def test_env_vars_set_options(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -
             "CRAWL4MCP_MAX_URLS": "50",
             "CRAWL4MCP_CONCURRENCY": "5",
             "CRAWL4MCP_TRANSPORT": "HTTP",
+            "CRAWL4MCP_LOG_LEVEL": "error",
+            "CRAWL4MCP_KEEP_DOWNLOADS": "1",
         },
     )
     assert result.exit_code == 0, result.output
     settings = captured["settings"]
     assert settings.max_urls == 50
     assert settings.concurrency == 5
+    assert settings.log_level == "error"
+    assert settings.keep_downloads is True
     assert fake.run_calls[0]["transport"] == "streamable-http"
 
 
@@ -146,12 +161,16 @@ def test_config_file_yaml_sets_options(monkeypatch: pytest.MonkeyPatch, tmp_path
         "port: 9100\n"
         "proxy: proxy.example:8080\n"
         "fallback: false\n"
+        "log_level: debug\n"
+        "keep_downloads: true\n"
         f"download_dir: {download_dir}\n",
         encoding="utf-8",
     )
     result = invoke(["--config", str(config)])
     assert result.exit_code == 0, result.output
     settings = captured["settings"]
+    assert settings.log_level == "debug"
+    assert settings.keep_downloads is True
     assert settings.max_urls == 42
     assert settings.concurrency == 4
     assert settings.fallback is False
@@ -207,15 +226,75 @@ def test_precedence_cli_over_env_over_config(
     monkeypatch.chdir(tmp_path)
     fake, captured = install(monkeypatch)
     config = tmp_path / "config.yaml"
-    config.write_text("concurrency: 2\nmax_urls: 10\n", encoding="utf-8")
+    config.write_text(
+        "concurrency: 2\nmax_urls: 10\nlog_level: debug\nkeep_downloads: true\n",
+        encoding="utf-8",
+    )
     result = invoke(
-        ["--config", str(config), "--concurrency", "9"],
-        env={"CRAWL4MCP_MAX_URLS": "77"},
+        ["--config", str(config), "--concurrency", "9", "--log-level", "error"],
+        env={"CRAWL4MCP_MAX_URLS": "77", "CRAWL4MCP_LOG_LEVEL": "info"},
     )
     assert result.exit_code == 0, result.output
     settings = captured["settings"]
     assert settings.concurrency == 9
     assert settings.max_urls == 77
+    assert settings.log_level == "error"  # CLI beats env and config
+    assert settings.keep_downloads is True  # config alone
+
+
+def test_log_level_env_beats_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.chdir(tmp_path)
+    _fake, captured = install(monkeypatch)
+    config = tmp_path / "config.yaml"
+    config.write_text("log_level: debug\n", encoding="utf-8")
+    result = invoke(["--config", str(config)], env={"CRAWL4MCP_LOG_LEVEL": "error"})
+    assert result.exit_code == 0, result.output
+    assert captured["settings"].log_level == "error"
+
+
+# --- log level and keep-downloads ------------------------------------------------
+
+
+def test_log_level_and_keep_downloads_options_reach_settings_and_logging(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _fake, captured = install(monkeypatch)
+    levels: list[str] = []
+    monkeypatch.setattr(mcp_main, "setup_logging", levels.append)
+    result = invoke(["--log-level", "debug", "--keep-downloads"])
+    assert result.exit_code == 0, result.output
+    assert levels == ["debug"]
+    assert captured["settings"].log_level == "debug"
+    assert captured["settings"].keep_downloads is True
+
+
+@pytest.mark.parametrize(
+    ("args", "env", "config"),
+    [
+        (["--log-level", "verbose"], {}, None),
+        ([], {"CRAWL4MCP_LOG_LEVEL": "warning"}, None),
+        ([], {}, "log_level: warning\n"),
+    ],
+    ids=["option", "variable", "config"],
+)
+def test_unsupported_log_level_exits_2(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    args: list[str],
+    env: dict[str, str],
+    config: str | None,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _fake, captured = install(monkeypatch)
+    if config is not None:
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(config, encoding="utf-8")
+        args = ["--config", str(config_file), *args]
+    result = invoke(args, env=env)
+    assert result.exit_code == 2
+    assert "Invalid value for '--log-level'" in result.stderr
+    assert captured == {}
 
 
 @pytest.mark.parametrize(
@@ -313,7 +392,7 @@ def test_run_keyboard_interrupt_exits_0_silently(
     install(monkeypatch, run_effect=KeyboardInterrupt())
     result = invoke([])
     assert result.exit_code == 0
-    assert result.stderr == ""
+    assert result.stderr.splitlines() == [version_line()]
 
 
 # --- message language -------------------------------------------------------------
@@ -421,6 +500,7 @@ def test_japanese_warning_and_serving_lines_keep_the_english_prefixes(
     result = invoke(["--lang", "ja", "--transport", "http", "--host", "0.0.0.0"])
     assert result.exit_code == 0, result.output
     assert result.stderr.splitlines() == [
+        version_line(),
         "warning: 0.0.0.0:8765 で認証なしで待ち受けています。"
         "接続できる人は誰でもこのサーバーを使えます",
         "crawl4mcp: http://0.0.0.0:8765/mcp で MCP を提供しています",
@@ -453,11 +533,18 @@ def test_english_help_is_unchanged_and_lists_lang() -> None:
         "Root directory the download tool saves files into.",
         "YAML or JSON config file; command-line options and CRAWL4MCP_* environment "
         "variables take precedence.",
+        "Log level: debug (everything), info (fetches, warnings and errors), or error "
+        "(warnings and errors only).",
+        "Keep the files saved by the download tool on the server after a client fetched "
+        "them over HTTP (by default the server deletes its copy then).",
         "Language of messages: en or ja.",
         "Show the version and exit.",
     ]:
         assert squash(text) in output, text
     assert "--lang [en|ja]" in result.output
+    assert "--log-level [debug|info|error]" in result.output
+    assert "--keep-downloads" in result.output
+    assert "--verbose" not in result.output
 
 
 def test_japanese_help_shows_translated_texts() -> None:
@@ -478,7 +565,10 @@ def test_japanese_help_shows_translated_texts() -> None:
         "YAML または JSON の設定ファイルです。コマンドラインのオプションと CRAWL4MCP_* "
         "環境変数が優先されます。",
         "プロキシ URL(http、https、socks5 のいずれか)です。例: socks5://host:1080。",
-        "詳細なログを出力します。",
+        "ログレベルです。debug(すべて)、info(取得、警告、エラー)、error(警告とエラーのみ)"
+        "のいずれかです。",
+        "download ツールが保存したファイルを、クライアントが HTTP で取得した後もサーバーに"
+        "残します(既定ではその時点でサーバー側のコピーを削除します)。",
         "メッセージの言語(en または ja)です。",
         "バージョンを表示して終了します。",
     ]:

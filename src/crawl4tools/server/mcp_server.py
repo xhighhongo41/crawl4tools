@@ -14,7 +14,8 @@ and call :func:`fetch_all` with it directly.
 The files saved by ``download`` are registered in the state's
 :class:`~crawl4tools.server.files.FileRegistry`, and the server's HTTP app
 serves them at ``/files/{token}``: over HTTP, each saved file comes with a
-``file_url`` the client can fetch it from.
+``file_url`` the client can fetch it from, and the server deletes the file
+once it has been fetched whole (unless ``settings.keep_downloads``).
 
 Every text the server shows its clients (the instructions, the tool titles
 and descriptions, the parameter descriptions, notes and errors) is in the
@@ -57,6 +58,7 @@ from crawl4tools.server.results import (
     check_urls,
     download_lines,
     download_record,
+    log_outcome,
     page_blocks,
     page_meta,
     resolve_directory,
@@ -151,6 +153,8 @@ def _instructions(settings: ServerSettings, t: Translator) -> str:
         "source) into a directory on the server and returns their paths. "
         "Over HTTP, `download` also returns a `file_url` per file to fetch it from the "
         "server (e.g. with curl). "
+        "The server deletes its copy of a file once it has been fetched from its "
+        "`file_url` (unless the server was started with `--keep-downloads`). "
         "PDFs are transcribed to Markdown. Duplicate URLs are fetched once. "
         "At most {max_urls} URLs per call."
     ).format(max_urls=settings.max_urls)
@@ -300,10 +304,15 @@ def build_server(
     The server's HTTP app serves the saved files at ``GET /files/{token}``
     from the :class:`FileRegistry` of *state*, or, without *state*, from
     one registry created here and shared by every lifespan (an HTTP server
-    runs one per session).
+    runs one per session). A file fetched whole from there is deleted from
+    the server, unless ``settings.keep_downloads``.
 
     The texts sent to the clients are translated by ``settings.translator``
     once, when the server is built.
+
+    The uvicorn server that ``run(transport="streamable-http")`` starts logs
+    at INFO, with its access log, only when ``settings.log_level`` is
+    ``debug``, and at WARNING otherwise.
     """
     t = settings.translator
     descriptions = _parameter_descriptions(t)
@@ -322,8 +331,11 @@ def build_server(
         instructions=_instructions(settings, t),
         version=__version__,
         lifespan=lifespan,
+        log_level="INFO" if settings.log_level == "debug" else "WARNING",
     )
-    server.custom_route(FILES_PATH, methods=["GET"])(files_route(registry, t))
+    server.custom_route(FILES_PATH, methods=["GET"])(
+        files_route(registry, t, keep=settings.keep_downloads)
+    )
 
     @server.tool(
         name="fetch",
@@ -367,6 +379,7 @@ def build_server(
             content.append(TextContent(type="text", text="\n".join(notes)))
         multiple = len(unique) > 1
         for url, outcome in zip(unique, outcomes, strict=True):
+            log_outcome(logger, url, outcome)
             content.extend(page_blocks(outcome, url, t, multiple=multiple))
         return CallToolResult(
             content=content,
@@ -389,7 +402,10 @@ def build_server(
             "file was saved. When the server is reached over HTTP, each saved file also has a "
             "`file_url`; fetch it (for example `curl -o <name> <file_url>`) to save the file "
             "on your own machine without passing its content through the conversation. Over "
-            "stdio the server runs on your machine, so the returned paths are local."
+            "stdio the server runs on your machine, so the returned paths are local. When the "
+            "server is used over HTTP, it deletes its own copy of a file once a client has "
+            "fetched it from its `file_url` (unless the server was started with "
+            "`--keep-downloads`); over stdio the files stay where the returned paths say."
         ),
         annotations=ToolAnnotations(
             read_only_hint=False,
@@ -444,17 +460,21 @@ def build_server(
         records: list[dict[str, object]] = []
         for url, outcome in zip(unique, outcomes, strict=True):
             if not outcome.ok:
+                log_outcome(logger, url, outcome)
                 records.append(download_record(outcome, url, None, t))
                 continue
             path = allocator.allocate(filename_for(url, outcome.suggested_extension))
+            data = payload_bytes(outcome)
             try:
-                path.write_bytes(payload_bytes(outcome))
+                path.write_bytes(data)
             except OSError as exc:
                 error = t.gettext("could not write {path}: {reason}").format(
                     path=path, reason=exc.strerror
                 )
+                logger.warning("error: could not write %s: %s", path, exc.strerror)
                 records.append(download_record(outcome, url, None, t, error=error))
             else:
+                log_outcome(logger, url, outcome, path=path, size=len(data))
                 token = server_state.files.register(path)
                 file_url = f"{base}/files/{token}" if base else None
                 records.append(download_record(outcome, url, path, t, file_url=file_url))

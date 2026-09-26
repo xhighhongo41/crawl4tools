@@ -23,7 +23,8 @@ def test_config_keys_contents() -> None:
             "concurrency",
             "max_urls",
             "download_dir",
-            "verbose",
+            "log_level",
+            "keep_downloads",
             "lang",
         }
     )
@@ -31,11 +32,15 @@ def test_config_keys_contents() -> None:
 
 def test_load_config_yaml(tmp_path: Path) -> None:
     config_file = tmp_path / "config.yaml"
-    config_file.write_text("transport: stdio\nport: 8080\nverbose: true\n", encoding="utf-8")
+    config_file.write_text(
+        "transport: stdio\nport: 8080\nlog_level: debug\nkeep_downloads: true\n",
+        encoding="utf-8",
+    )
     assert load_config(config_file) == {
         "transport": "stdio",
         "port": 8080,
-        "verbose": True,
+        "log_level": "debug",
+        "keep_downloads": True,
     }
 
 

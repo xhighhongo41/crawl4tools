@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from crawl4tools.engine import normalize_proxy
 from crawl4tools.engine.models import FetchOptions, OutputFormat
@@ -28,6 +29,13 @@ DEFAULT_CONCURRENCY = 3
 #: Default upper bound on the number of URLs accepted in a single call.
 DEFAULT_MAX_URLS = 20
 
+#: How much the servers log on stderr: ``debug`` logs everything (crawl4ai's
+#: own output and uvicorn's access log included), ``info`` each fetch and
+#: every warning and error, ``error`` only warnings and errors.
+LogLevel = Literal["debug", "info", "error"]
+#: Every :data:`LogLevel`, from the most to the least verbose.
+LOG_LEVELS: tuple[LogLevel, ...] = ("debug", "info", "error")
+
 
 class SettingsError(LocalizedError, ValueError):
     """An out-of-range server setting.
@@ -44,7 +52,10 @@ class ServerSettings:
     Instances are immutable; a new instance is created for each server
     process from CLI options / config file / environment variables.
     ``lang`` is the language of the messages the server sends to its
-    clients (see :attr:`translator`); logs stay in English.
+    clients (see :attr:`translator`); logs stay in English. ``log_level``
+    is how much the server logs on stderr (see :data:`LogLevel`).
+    ``keep_downloads`` keeps the files saved by the download tool on the
+    server after a client fetched them over HTTP, instead of deleting them.
     """
 
     proxy: str | None = None
@@ -53,7 +64,8 @@ class ServerSettings:
     concurrency: int = DEFAULT_CONCURRENCY
     max_urls: int = DEFAULT_MAX_URLS
     download_root: Path = Path(".")
-    verbose: bool = False
+    log_level: LogLevel = "info"
+    keep_downloads: bool = False
     lang: str = DEFAULT_LANGUAGE
 
     def __post_init__(self) -> None:
@@ -61,7 +73,8 @@ class ServerSettings:
 
         Raises:
             SettingsError: (a ``ValueError``) if concurrency/max_urls/
-                timeout_s are out of range, or ``lang`` is not one of
+                timeout_s are out of range, ``log_level`` is not one of
+                :data:`LOG_LEVELS`, or ``lang`` is not one of
                 :data:`~crawl4tools.i18n.SUPPORTED_LANGUAGES`.
             ProxyUrlError: (a ``ValueError``) if the proxy URL is invalid.
         """
@@ -74,6 +87,12 @@ class ServerSettings:
         if self.timeout_s <= 0:
             raise SettingsError(
                 N_("timeout_s must be greater than 0, got {value}"), value=self.timeout_s
+            )
+        if self.log_level not in LOG_LEVELS:
+            raise SettingsError(
+                N_("unsupported log level: {value} (choose from {choices})"),
+                value=self.log_level,
+                choices=", ".join(LOG_LEVELS),
             )
         if self.lang not in SUPPORTED_LANGUAGES:
             raise SettingsError(
@@ -102,9 +121,10 @@ class ServerSettings:
     ) -> FetchOptions:
         """Build a :class:`FetchOptions` for one call, layering per-call flags.
 
-        ``proxy``, ``fallback``, and ``verbose`` always come from these
-        settings; the other arguments let a single tool call override the
-        format and content-shaping flags without mutating the settings.
+        ``proxy`` and ``fallback`` always come from these settings, and
+        crawl4ai is verbose only when ``log_level`` is ``debug``; the other
+        arguments let a single tool call override the format and
+        content-shaping flags without mutating the settings.
 
         Raises:
             SettingsError: (a ``ValueError``) if *timeout_s* is given and
@@ -122,5 +142,5 @@ class ServerSettings:
             ignore_links=ignore_links,
             ignore_images=ignore_images,
             fit=fit,
-            verbose=self.verbose,
+            verbose=self.log_level == "debug",
         )

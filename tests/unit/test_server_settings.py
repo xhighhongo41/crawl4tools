@@ -11,6 +11,8 @@ from crawl4tools.server.settings import (
     DEFAULT_CONCURRENCY,
     DEFAULT_MAX_URLS,
     DEFAULT_TIMEOUT_S,
+    LOG_LEVELS,
+    LogLevel,
     ServerSettings,
     SettingsError,
 )
@@ -26,19 +28,56 @@ def test_defaults() -> None:
     assert settings.concurrency == DEFAULT_CONCURRENCY
     assert settings.max_urls == DEFAULT_MAX_URLS
     assert settings.download_root == Path(".")
-    assert settings.verbose is False
+    assert settings.log_level == "info"
+    assert settings.keep_downloads is False
 
 
 def test_constants() -> None:
     assert DEFAULT_TIMEOUT_S == 60.0
     assert DEFAULT_CONCURRENCY == 3
     assert DEFAULT_MAX_URLS == 20
+    assert LOG_LEVELS == ("debug", "info", "error")
+
+
+@pytest.mark.parametrize("log_level", ["debug", "info", "error"])
+def test_accepts_every_log_level(log_level: LogLevel) -> None:
+    assert ServerSettings(log_level=log_level).log_level == log_level
+
+
+@pytest.mark.parametrize("log_level", ["warning", "DEBUG", ""])
+def test_rejects_unsupported_log_level(log_level: str) -> None:
+    with pytest.raises(SettingsError) as info:
+        ServerSettings(log_level=log_level)  # type: ignore[arg-type]
+    assert isinstance(info.value, ValueError)
+    assert str(info.value) == (
+        f"unsupported log level: {log_level} (choose from debug, info, error)"
+    )
+
+
+def test_log_level_error_in_japanese() -> None:
+    with pytest.raises(SettingsError) as info:
+        ServerSettings(log_level="warning")  # type: ignore[arg-type]
+    assert info.value.render(JA) == (
+        "対応していないログレベルです: warning(選択肢: debug, info, error)"
+    )
+
+
+@pytest.mark.parametrize(
+    ("log_level", "verbose"),
+    [("debug", True), ("info", False), ("error", False)],
+)
+def test_fetch_options_verbose_only_for_debug(log_level: LogLevel, verbose: bool) -> None:
+    assert ServerSettings(log_level=log_level).fetch_options().verbose is verbose
+
+
+def test_keep_downloads_is_stored() -> None:
+    assert ServerSettings(keep_downloads=True).keep_downloads is True
 
 
 def test_is_frozen() -> None:
     settings = ServerSettings()
     with pytest.raises(AttributeError):
-        settings.verbose = True  # type: ignore[misc]
+        settings.log_level = "debug"  # type: ignore[misc]
 
 
 @pytest.mark.parametrize("concurrency", [0, -1])
@@ -70,7 +109,7 @@ def test_rejects_invalid_proxy() -> None:
 
 
 def test_fetch_options_uses_settings_defaults() -> None:
-    settings = ServerSettings(proxy="example.com:8080", fallback=False, verbose=True)
+    settings = ServerSettings(proxy="example.com:8080", fallback=False, log_level="debug")
     options = settings.fetch_options()
     assert options == FetchOptions(
         format=OutputFormat.MARKDOWN,

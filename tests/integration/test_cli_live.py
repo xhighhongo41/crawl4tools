@@ -7,8 +7,10 @@ import sys
 import threading
 import time
 from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
+import httpx
 import pytest
 import uvicorn
 from click.testing import CliRunner
@@ -20,7 +22,7 @@ from starlette.routing import Route
 from crawl4tools.cli.main import main
 from crawl4tools.engine.errors import HttpStatusError
 from crawl4tools.engine.fetcher import Fetcher
-from crawl4tools.engine.models import FetchOptions
+from crawl4tools.engine.models import ContentKind, FetchOptions
 from crawl4tools.i18n import get_translator
 
 pytestmark = pytest.mark.integration
@@ -154,6 +156,25 @@ def _free_port() -> int:
         return port
 
 
+@contextmanager
+def _serve(app: Starlette) -> Iterator[str]:
+    """Serve *app* on a free local port in a thread; yield its base URL."""
+    port = _free_port()
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    try:
+        deadline = time.monotonic() + 30
+        while not server.started:
+            if not thread.is_alive() or time.monotonic() > deadline:
+                pytest.fail("the local test server did not start")
+            time.sleep(0.05)
+        yield f"http://127.0.0.1:{port}"
+    finally:
+        server.should_exit = True
+        thread.join(timeout=10)
+
+
 @pytest.fixture
 def redirect_site() -> Iterator[str]:
     """Serve /moved -> 301 -> /final (200) and /gone -> 301 -> /missing (404) locally."""
@@ -165,20 +186,8 @@ def redirect_site() -> Iterator[str]:
             Route("/missing", _missing),
         ]
     )
-    port = _free_port()
-    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
-    thread = threading.Thread(target=server.run, daemon=True)
-    thread.start()
-    try:
-        deadline = time.monotonic() + 30
-        while not server.started:
-            if not thread.is_alive() or time.monotonic() > deadline:
-                pytest.fail("the redirect test server did not start")
-            time.sleep(0.05)
-        yield f"http://127.0.0.1:{port}"
-    finally:
-        server.should_exit = True
-        thread.join(timeout=10)
+    with _serve(app) as base_url:
+        yield base_url
 
 
 async def test_redirects_are_judged_by_the_final_response(redirect_site: str) -> None:
@@ -197,3 +206,58 @@ async def test_redirects_are_judged_by_the_final_response(redirect_site: str) ->
     assert isinstance(gone.error, HttpStatusError)
     assert gone.status_code == 404
     assert str(gone.error) == f"HTTP 404 Not Found: {redirect_site}/gone"
+
+
+# --- non-HTML responses crawl4ai's anti-bot check rejects (1.0.0b3 T5) ------------------
+
+# A 1x1 PNG. Chromium shows it as a near-empty page wrapping the image, which
+# crawl4ai's anti-bot check (it does not look at the content type) rejects.
+_PNG = bytes.fromhex(
+    "89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de"
+    "0000000c4944415478da63f8cfc0000003010100f70341430000000049454e44ae426082"
+)
+# How the HTTP client fails behind a proxy that intercepts TLS.
+_TLS_FAILURE = (
+    "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: "
+    "self-signed certificate in certificate chain"
+)
+
+
+async def _pixel(request: Request) -> Response:
+    return Response(_PNG, media_type="image/png")
+
+
+@pytest.fixture
+def image_site() -> Iterator[str]:
+    """Serve a small PNG image at /pixel.png locally."""
+    with _serve(Starlette(routes=[Route("/pixel.png", _pixel)])) as base_url:
+        yield base_url
+
+
+async def test_image_the_http_client_cannot_reach_is_saved_from_the_browser(
+    image_site: str,
+) -> None:
+    requests: list[httpx.Request] = []
+
+    def tls_failure(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        raise httpx.ConnectError(_TLS_FAILURE)
+
+    def client(proxy: str | None, timeout_s: float) -> httpx.AsyncClient:
+        return httpx.AsyncClient(transport=httpx.MockTransport(tls_failure))
+
+    url = f"{image_site}/pixel.png"
+    async with Fetcher(FetchOptions(timeout_s=30), http_client_factory=client) as fetcher:
+        outcome = await fetcher.fetch(url)
+
+    assert outcome.ok, outcome.error
+    assert outcome.content_kind is ContentKind.BINARY
+    assert outcome.data == _PNG
+    assert outcome.content_type == "image/png"
+    assert outcome.status_code == 200
+    assert outcome.final_url == url
+    assert [str(note) for note in outcome.notes] == [
+        "not a web page (image/png); saved the original file"
+    ]
+    # Only the probe went over HTTP, and it failed: the image came from the browser.
+    assert len(requests) == 1

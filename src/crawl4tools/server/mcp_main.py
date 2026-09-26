@@ -44,7 +44,7 @@ from crawl4tools.server.cli_options import (
 )
 from crawl4tools.server.config import CONFIG_KEYS
 from crawl4tools.server.mcp_server import build_server
-from crawl4tools.server.settings import ServerSettings
+from crawl4tools.server.settings import LogLevel, ServerSettings
 
 # The variable naming the message language. The --lang option reads it as
 # well, and click rejects unsupported values there.
@@ -148,11 +148,15 @@ def build_command(t: Translator) -> click.Command:
         concurrency: int,
         max_urls: int,
         download_dir: Path,
-        verbose: bool,
+        log_level: LogLevel,
+        keep_downloads: bool,
         lang: str,
     ) -> None:
         # No docstring: the help comes from help= above so that it is translated.
-        setup_logging(verbose)
+        setup_logging(log_level)
+        # The version comes first on stderr over both transports, so every log
+        # tells which build wrote it.
+        click.echo(version_text().splitlines()[0], err=True)
 
         settings = ServerSettings(
             proxy=proxy,
@@ -161,7 +165,8 @@ def build_command(t: Translator) -> click.Command:
             concurrency=concurrency,
             max_urls=max_urls,
             download_root=download_dir.resolve(),
-            verbose=verbose,
+            log_level=log_level,
+            keep_downloads=keep_downloads,
             lang=lang,
         )
         runtime = settings.translator

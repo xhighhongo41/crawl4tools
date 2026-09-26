@@ -149,6 +149,16 @@ async def test_crawl_two_urls_in_input_order() -> None:
         }
 
 
+async def test_crawl_logs_a_fetched_line_per_document(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="crawl4tools.server.loader")
+    async with loader_client() as (client, _):
+        response = await crawl(client, [URL])
+    assert response.status_code == 200
+    assert f"fetched: {URL} (HTTP 200, html, 7 chars)" in caplog.text
+
+
 async def test_crawl_duplicate_url_returned_once() -> None:
     async with loader_client() as (client, fake):
         response = await crawl(client, [URL, URL])
@@ -460,3 +470,13 @@ async def test_japanese_lang_keeps_english_logs_for_failed_and_invalid_urls(
     assert response.status_code == 200
     assert "error: HTTP 404" in caplog.text
     assert "error: invalid URL: not a url" in caplog.text
+
+
+async def test_japanese_lang_keeps_the_fetched_log_line_in_english(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="crawl4tools.server.loader")
+    async with loader_client(lang="ja") as (client, _):
+        response = await crawl(client, [URL])
+    assert response.status_code == 200
+    assert f"fetched: {URL} (HTTP 200, html, 7 chars)" in caplog.text

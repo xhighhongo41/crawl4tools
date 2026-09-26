@@ -27,7 +27,7 @@ from crawl4tools.engine.fetcher import Fetcher
 from crawl4tools.i18n import N_, LocalizedError, Translator
 from crawl4tools.server.loader import LoaderSettings, build_loader_app
 from crawl4tools.server.mcp_server import FetcherFactory, build_server, open_state
-from crawl4tools.server.settings import ServerSettings
+from crawl4tools.server.settings import LogLevel, ServerSettings
 
 #: Called once the server listens, with the server and the actual ports
 #: (``{"loader": ..., "mcp": ...}``).
@@ -207,7 +207,7 @@ async def serve_async(
     host: str,
     loader_port: int,
     mcp_port: int,
-    verbose: bool = False,
+    log_level: LogLevel = "info",
     fetcher_factory: FetcherFactory = Fetcher,
     sockets: list[socket.socket] | None = None,
     on_started: StartedCallback | None = None,
@@ -219,6 +219,8 @@ async def serve_async(
     the shared state with *fetcher_factory*, and runs one uvicorn server on
     both sockets. *on_started* is called once the server listens, with the
     server (set its ``should_exit`` to stop it) and the actual ports.
+    uvicorn logs at INFO, with its access log, only when *log_level* is
+    ``debug``, and at WARNING otherwise.
 
     On SIGINT/SIGTERM uvicorn shuts down gracefully, waiting at most
     :data:`GRACEFUL_SHUTDOWN_S` seconds for requests in progress, and then
@@ -243,8 +245,8 @@ async def serve_async(
                 config = uvicorn.Config(
                     app,
                     lifespan="off",
-                    log_level="info" if verbose else "warning",
-                    access_log=verbose,
+                    log_level="info" if log_level == "debug" else "warning",
+                    access_log=log_level == "debug",
                     timeout_graceful_shutdown=GRACEFUL_SHUTDOWN_S,
                 )
                 await _Server(config, ports, on_started).serve(sockets=sockets)
@@ -260,7 +262,7 @@ def serve(
     host: str,
     loader_port: int,
     mcp_port: int,
-    verbose: bool = False,
+    log_level: LogLevel = "info",
     fetcher_factory: FetcherFactory = Fetcher,
     on_started: StartedCallback | None = None,
 ) -> None:
@@ -277,7 +279,7 @@ def serve(
             host=host,
             loader_port=loader_port,
             mcp_port=mcp_port,
-            verbose=verbose,
+            log_level=log_level,
             fetcher_factory=fetcher_factory,
             on_started=on_started,
         )

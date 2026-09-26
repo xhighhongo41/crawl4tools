@@ -76,6 +76,15 @@ _ERROR_PAGE_SCAN_BYTES = 64 * 1024
 # HTTP status they report whenever one is available.
 _ANTI_BOT_PREFIX = "Blocked by anti-bot protection"
 
+# The largest non-HTML body (by its Content-Length) the after_goto hook keeps in
+# memory. Without a Content-Length the body is kept whatever its size, as an
+# HTTP download of it would be.
+_HOOK_BODY_LIMIT = 64 * 1024 * 1024
+
+# What the after_goto hook keeps of a URL's final response: its status, its
+# headers and, for a non-HTML 2xx response, its body (None when not kept).
+_FinalResponse = tuple[int | None, dict[str, str], bytes | None]
+
 
 class CrawlerLike(Protocol):
     """The subset of ``AsyncWebCrawler`` the fetcher relies on."""
@@ -162,6 +171,33 @@ def _media_type(content_type: str | None) -> str | None:
     return content_type.split(";", 1)[0].strip().lower() or None
 
 
+def _is_non_html(content_type: str | None) -> bool:
+    """Return True if *content_type* names a media type other than HTML."""
+    media_type = _media_type(content_type)
+    return media_type is not None and media_type not in _HTML_MEDIA_TYPES
+
+
+def _keeps_body(status: int | None, headers: Mapping[str, Any]) -> bool:
+    """Return True if the after_goto hook keeps the body of this final response.
+
+    Only a non-HTML 2xx response is kept (an HTML page is read from the
+    browser, and an error's body is never saved), and only when its
+    ``Content-Length`` is absent or at most ``_HOOK_BODY_LIMIT``.
+    """
+    if not _is_non_html(_header(headers, "content-type")):
+        return False
+    if status is None or not 200 <= status < 300:
+        return False
+    length = _header(headers, "content-length")
+    if length is None:
+        return True
+    try:
+        return int(length) <= _HOOK_BODY_LIMIT
+    except ValueError:
+        # A length that cannot be read may be anything, so it is not trusted.
+        return False
+
+
 def _normalized(options: FetchOptions) -> FetchOptions:
     """Return *options* with its proxy normalized.
 
@@ -190,7 +226,10 @@ class Fetcher:
     first response's headers, so the final response's headers are kept by
     an ``after_goto`` hook registered on the crawler when it starts; when
     the hook has none for the URL (or its status differs), the first
-    response's headers are used.
+    response's headers are used. For a non-HTML 2xx response the hook also
+    keeps the body the browser received, so that a file the browser could
+    reach is saved without downloading it again (the HTTP client may not
+    reach it, e.g. through a proxy that intercepts TLS).
     """
 
     def __init__(
@@ -212,9 +251,9 @@ class Fetcher:
         self._crawler_cm: AbstractAsyncContextManager[CrawlerLike] | None = None
         self._crawler: CrawlerLike | None = None
         self._start_error: str | None = None
-        # Final response (status, headers) of each URL, as seen by the after_goto
-        # hook; taken out when the URL's crawl result is judged.
-        self._final_responses: dict[str, tuple[int | None, dict[str, str]]] = {}
+        # Final response (status, headers, body or None) of each URL, as seen by
+        # the after_goto hook; taken out when the URL's crawl result is judged.
+        self._final_responses: dict[str, _FinalResponse] = {}
 
     @property
     def options(self) -> FetchOptions:
@@ -281,17 +320,30 @@ class Fetcher:
         """crawl4ai ``after_goto`` hook: keep the final response's status and headers.
 
         *response* is what ``page.goto()`` returned, i.e. the last response of
-        the redirect chain. Returns *page*, as crawl4ai's hooks do.
+        the redirect chain. The body is kept too when it is a non-HTML 2xx
+        response not larger than ``_HOOK_BODY_LIMIT`` (see
+        :func:`_keeps_body`); a body that cannot be read is not kept. Returns
+        *page*, as crawl4ai's hooks do.
         """
-        if response is not None and url:
+        if response is None or not url:
+            return page
+        try:
+            status: int | None = getattr(response, "status", None)
+            headers = dict(response.headers)
+        except Exception:
+            logger.debug("could not keep the final response of %s", url, exc_info=True)
+            return page
+        body: bytes | None = None
+        if _keeps_body(status, headers):
             try:
-                status: int | None = getattr(response, "status", None)
-                self._final_responses[url] = (status, dict(response.headers))
+                body = bytes(await response.body())
             except Exception:
-                logger.debug("could not keep the final response of %s", url, exc_info=True)
+                # Without the body, the file is downloaded over HTTP instead.
+                logger.debug("could not keep the body of %s", url, exc_info=True)
+        self._final_responses[url] = (status, headers, body)
         return page
 
-    def _take_final_response(self, url: str) -> tuple[int | None, dict[str, str]] | None:
+    def _take_final_response(self, url: str) -> _FinalResponse | None:
         """Remove and return the final response the hook kept for *url*, if any.
 
         The browser may report the URL with or without a trailing slash, so
@@ -519,14 +571,21 @@ class Fetcher:
         the same status without that verdict (in particular, it can trigger
         the direct-connection fallback for 503 like any other HTTP_STATUS
         failure). Without a usable status it stays a generic failure.
+
+        That verdict on a non-HTML response below 400 (e.g. an image, which
+        the browser shows as a near-empty page) is not a failure: the
+        response is saved as the file it is, from the body the hook kept or,
+        without one, from an HTTP download.
         """
         final = self._take_final_response(url)
         first_status: int | None = getattr(result, "status_code", None)
         final_status: int | None = getattr(result, "redirected_status_code", None)
         status_code = final_status if final_status is not None else first_status
         headers: Mapping[str, Any] | None
+        final_body: bytes | None = None
         if final is not None and final[0] == status_code:
             headers = final[1]
+            final_body = final[2]
         else:
             headers = getattr(result, "response_headers", None)
         html: str | None = getattr(result, "html", None)
@@ -537,14 +596,28 @@ class Fetcher:
         if interference is not None:
             return self._failure(url, interference, options, status_code)
 
+        content_type = _header(headers, "content-type")
         if not getattr(result, "success", False):
             detail: str | None = getattr(result, "error_message", None)
+            is_anti_bot = detail is not None and detail.startswith(_ANTI_BOT_PREFIX)
             if (
-                detail is not None
-                and detail.startswith(_ANTI_BOT_PREFIX)
+                is_anti_bot
                 and status_code is not None
-                and status_code >= 400
+                and status_code < 400
+                and _is_non_html(content_type)
             ):
+                # crawl4ai judges the page the browser shows, not the content type.
+                return await self._received_outcome(
+                    url,
+                    proxy,
+                    options,
+                    result,
+                    status_code,
+                    headers,
+                    final_body,
+                    NonHtmlContentError(url, detail),
+                )
+            if is_anti_bot and status_code is not None and status_code >= 400:
                 return self._failure(url, HttpStatusError(url, status_code), options, status_code)
             kind = classify_error_message(detail)
             if kind is FailureKind.NON_HTML:
@@ -558,18 +631,47 @@ class Fetcher:
         if status_error is not None:
             return self._failure(url, status_error, options, status_code)
 
-        content_type = _header(headers, "content-type")
-        media_type = _media_type(content_type)
-        if (
-            media_type is not None
-            and media_type not in _HTML_MEDIA_TYPES
-            and not (html or "").strip()
-        ):
-            return await self._downloaded_outcome(
-                url, proxy, options, FetchError(url, "browser returned no HTML"), status_code
+        if _is_non_html(content_type) and not (html or "").strip():
+            return await self._received_outcome(
+                url,
+                proxy,
+                options,
+                result,
+                status_code,
+                headers,
+                final_body,
+                FetchError(url, "browser returned no HTML"),
             )
 
         return self._page_outcome(url, result, status_code, content_type, options)
+
+    async def _received_outcome(
+        self,
+        url: str,
+        proxy: str | None,
+        options: FetchOptions,
+        result: Any,
+        status_code: int | None,
+        headers: Mapping[str, Any] | None,
+        body: bytes | None,
+        unusable: FetchError,
+    ) -> FetchOutcome:
+        """Save a non-HTML response the browser received as a file.
+
+        *body* is what the ``after_goto`` hook kept of it; without one, the
+        file is downloaded over HTTP instead, and reported as *unusable* if
+        that fails (see :meth:`_downloaded_outcome`).
+        """
+        if body is None:
+            return await self._downloaded_outcome(url, proxy, options, unusable, status_code)
+        received = ProbeResult(
+            status_code=status_code,
+            content_type=_header(headers, "content-type"),
+            final_url=getattr(result, "redirected_url", None) or url,
+            headers={str(key).lower(): str(value) for key, value in (headers or {}).items()},
+            body=body,
+        )
+        return await self._resource_outcome(url, received, options)
 
     def _page_outcome(
         self,
@@ -652,7 +754,7 @@ class Fetcher:
     async def _resource_outcome(
         self, url: str, probed: ProbeResult, options: FetchOptions
     ) -> FetchOutcome:
-        """Assemble an outcome for a non-HTML resource downloaded over HTTP."""
+        """Assemble an outcome for a non-HTML resource (downloaded, or received by the browser)."""
         fmt = options.format
         body = probed.body if probed.body is not None else b""
         media_type = probed.media_type

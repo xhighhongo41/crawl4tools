@@ -331,7 +331,9 @@ def test_release_has_exactly_the_six_jobs(release: dict[str, Any]) -> None:
 
 
 def test_release_jobs_never_continue_on_error(release: dict[str, Any]) -> None:
-    assert lenient_jobs(release) == []
+    # The manifest job's Docker Hub overview update is the one deliberate
+    # exception: it is a best-effort courtesy that must never fail the release.
+    assert lenient_jobs(release) == ["manifest"]
 
 
 def test_release_token_can_only_read_contents(release: dict[str, Any]) -> None:
@@ -365,7 +367,7 @@ def test_release_jobs_widen_permissions_only_where_needed(release: dict[str, Any
 
 def test_release_verify_job_outputs_what_the_other_jobs_read(release: dict[str, Any]) -> None:
     outputs = jobs(release)["verify"].get("outputs", {})
-    assert set(outputs) == {"version", "tag", "is_prerelease", "dry_run"}
+    assert set(outputs) == {"version", "tag", "is_prerelease", "dry_run", "description"}
 
 
 def test_release_pypi_job_deploys_to_the_pypi_environment(release: dict[str, Any]) -> None:
@@ -412,6 +414,17 @@ def test_release_docker_matrix_builds_each_platform_natively(release: dict[str, 
     assert isinstance(include, list), f"matrix has no include list: {include!r}"
     assert {str(row["platform"]): str(row["runner"]) for row in include} == DOCKER_PLATFORMS
     assert job.get("runs-on") == "${{ matrix.runner }}"
+
+
+def test_release_manifest_updates_the_docker_hub_description(release: dict[str, Any]) -> None:
+    found = steps_using(jobs(release)["manifest"], "peter-evans/dockerhub-description")
+    assert len(found) == 1, f"expected one dockerhub-description step, found {len(found)}"
+    step = found[0]
+    # Best-effort only: it must never fail the release.
+    assert is_true(step.get("continue-on-error"))
+    inputs = step_inputs(step)
+    assert inputs.get("readme-filepath") == "./.github/dockerhub-overview.md"
+    assert "needs.verify.outputs.description" in str(inputs.get("short-description", ""))
 
 
 def test_release_manifest_tags_latest_only_for_final_releases(release: dict[str, Any]) -> None:

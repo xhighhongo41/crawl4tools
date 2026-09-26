@@ -30,7 +30,8 @@ CONFIG_KEYS: frozenset[str] = frozenset(
         "concurrency",
         "max_urls",
         "download_dir",
-        "verbose",
+        "log_level",
+        "keep_downloads",
         "lang",
     }
 )

@@ -338,6 +338,32 @@ else
     skip "gh run: ci.yml succeeded on HEAD (gh is not installed or not logged in)"
 fi
 
+# 13. Every classifier in pyproject.toml is a real, registered trove classifier
+# (PyPI rejects an unregistered one at upload time). trove-classifiers is not a
+# project dependency, so it is pulled on the fly with --with; when uv cannot
+# reach the network to do that, the check is skipped rather than failed.
+classifier_check=$(uv run --quiet --no-project --isolated --with trove-classifiers python - <<'PY' 2>&1
+import tomllib
+
+from trove_classifiers import classifiers
+
+with open("pyproject.toml", "rb") as f:
+    data = tomllib.load(f)
+
+unknown = [c for c in data["project"]["classifiers"] if c not in classifiers]
+print("UNKNOWN:" + "|".join(unknown) if unknown else "OK")
+PY
+)
+classifier_status=$?
+if ((classifier_status != 0)); then
+    skip "pyproject.toml: classifiers are registered trove classifiers" \
+        "(could not run: ${classifier_check//$'\n'/ })"
+elif [[ "$classifier_check" == "OK" ]]; then
+    ok "pyproject.toml: classifiers are registered trove classifiers"
+else
+    fail "pyproject.toml: unknown classifier(s): ${classifier_check#UNKNOWN:}"
+fi
+
 if ((failures > 0)); then
     printf '\nrelease_check.sh: %d problem(s)' "$failures"
     if ((skipped > 0)); then

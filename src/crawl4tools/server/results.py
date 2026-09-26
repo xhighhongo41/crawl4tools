@@ -1,19 +1,23 @@
 """Turn engine :class:`FetchOutcome` objects into MCP-tool-facing results.
 
 Pure formatting/validation helpers shared by every crawl4mcp tool: URL list
-checking, download-path resolution, human-readable content blocks, and the
-structured metadata/records returned alongside them. No network or MCP
-server code lives here.
+checking, download-path resolution, human-readable content blocks, the
+structured metadata/records returned alongside them, and the per-URL log
+line each server writes for its own operators. No network or MCP server
+code lives here.
 
 The formatting functions take the :data:`~crawl4tools.i18n.Translator` of
 the server's language. Only the messages are translated: the ``note:`` /
 ``saved:`` / ``file:`` / ``error:`` prefixes, the ``<!-- crawl4tools: ... -->`` header
-and the keys of the structured data stay in English.
+and the keys of the structured data stay in English. :func:`log_outcome` is
+not translated at all: logs are always in English (see
+:func:`~crawl4tools.server.cli_options.setup_logging`).
 """
 
 from __future__ import annotations
 
 import base64
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
@@ -275,3 +279,79 @@ def download_lines(record: dict[str, object], t: Translator) -> list[str]:
         error = record["error"] or t.gettext("fetch failed: {url}").format(url=url)
         lines.append(f"error: {error}")
     return lines
+
+
+def _with_url(message: str, url: str) -> str:
+    """Append ``: {url}`` to *message*, unless it already names *url*."""
+    return message if url in message else f"{message}: {url}"
+
+
+def _payload_size(outcome: FetchOutcome) -> int:
+    """Return the byte size of *outcome*'s payload, for the ``fetched:``/``saved:`` lines.
+
+    Binary payloads (``outcome.data``) take priority; a text payload is
+    measured as UTF-8. Returns 0 if the outcome carries neither.
+    """
+    if outcome.data is not None:
+        return len(outcome.data)
+    if outcome.text is not None:
+        return len(outcome.text.encode("utf-8"))
+    return 0
+
+
+def log_outcome(
+    logger: logging.Logger,
+    url: str,
+    outcome: FetchOutcome,
+    *,
+    path: Path | None = None,
+    size: int | None = None,
+    log_errors: bool = True,
+) -> None:
+    """Log one line for *outcome* plus one line per note, always in English.
+
+    This is the server-operator log (``logging``), independent of the
+    messages :func:`page_blocks`/:func:`download_lines` show to MCP/HTTP
+    clients: it is never translated, since :func:`~crawl4tools.server.
+    cli_options.setup_logging` fixes the logs to English regardless of
+    ``settings.lang``.
+
+    On success, an INFO line reports either the file *outcome* was saved to
+    (when *path* is given) or the fetch itself (status, content kind, and
+    size); *size* overrides the payload size reported for a save, for
+    callers that already know the exact number of bytes written to disk. On
+    failure, a WARNING ``error: ...`` line reports :attr:`FetchOutcome.error`
+    (or a generic message if there is none); pass ``log_errors=False`` to
+    suppress that line when the caller already logged the failure itself
+    (only the notes are then logged). Every :class:`~crawl4tools.engine.
+    models.Note` of *outcome*, success or failure, gets its own INFO
+    ``note: ...`` line.
+    """
+    if outcome.ok:
+        if path is not None:
+            byte_size = size if size is not None else _payload_size(outcome)
+            logger.info("saved: %s -> %s (%d bytes)", url, path, byte_size)
+        else:
+            status = outcome.status_code if outcome.status_code is not None else "-"
+            if outcome.text is not None:
+                logger.info(
+                    "fetched: %s (HTTP %s, %s, %d chars)",
+                    url,
+                    status,
+                    outcome.content_kind.value,
+                    len(outcome.text),
+                )
+            else:
+                logger.info(
+                    "fetched: %s (HTTP %s, %s, %d bytes)",
+                    url,
+                    status,
+                    outcome.content_kind.value,
+                    _payload_size(outcome),
+                )
+    elif log_errors:
+        message = str(outcome.error) if outcome.error is not None else f"fetch failed: {url}"
+        logger.warning("error: %s", _with_url(message, url))
+
+    for note in outcome.notes:
+        logger.info("note: %s", _with_url(str(note), url))
