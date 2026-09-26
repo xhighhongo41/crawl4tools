@@ -12,7 +12,7 @@ crawl4tools is a web crawler built on top of the [crawl4ai](https://github.com/u
 
 ## Status
 
-**Beta.** This release (1.0.0b2) is a beta of crawl4tools, published on [PyPI](https://pypi.org/project/crawl4tools/) and [Docker Hub](https://hub.docker.com/r/xhighhongo41/crawl4tools). It provides the local CLI `crawl4cli`, the MCP server `crawl4mcp`, and the combined Open WebUI web loader + MCP server `crawl4server`, with a Dockerfile and compose file. All three commands can show their messages in English or Japanese. Feedback from real use is welcome on the [Issues page](https://github.com/xhighhongo41/crawl4tools/issues); 1.0.0 will follow once this beta has been tested.
+**Beta.** This release (1.0.0b3) is a beta of crawl4tools, published on [PyPI](https://pypi.org/project/crawl4tools/) and [Docker Hub](https://hub.docker.com/r/xhighhongo41/crawl4tools). It provides the local CLI `crawl4cli`, the MCP server `crawl4mcp`, and the combined Open WebUI web loader + MCP server `crawl4server`, with a Dockerfile and compose file. All three commands can show their messages in English or Japanese. Feedback from real use is welcome on the [Issues page](https://github.com/xhighhongo41/crawl4tools/issues); 1.0.0 will follow once this beta has been tested.
 
 ## Features
 
@@ -185,7 +185,7 @@ docker compose up -d
 curl http://localhost:8766/health
 ```
 
-Without compose, the same image can be pulled directly: `docker pull xhighhongo41/crawl4tools:1.0.0b2`. Beta versions are not tagged `latest`, so always use the version tag. To build the image locally instead of pulling it, run `docker build -t xhighhongo41/crawl4tools:1.0.0b2 .` and then `docker compose up -d`.
+Without compose, the same image can be pulled directly: `docker pull xhighhongo41/crawl4tools:1.0.0b3`. Beta versions are not tagged `latest`, so always use the version tag. To build the image locally instead of pulling it, run `docker build -t xhighhongo41/crawl4tools:1.0.0b3 .` and then `docker compose up -d`.
 
 The compose file itself:
 
@@ -194,8 +194,8 @@ The compose file itself:
 # crawl4tools server (crawl4server): Open WebUI external web loader + MCP.
 #
 # The image is pulled from Docker Hub; `docker compose up -d` fetches
-# xhighhongo41/crawl4tools:1.0.0b2. To build locally instead, run
-# `docker build -t xhighhongo41/crawl4tools:1.0.0b2 .` first.
+# xhighhongo41/crawl4tools:1.0.0b3. To build locally instead, run
+# `docker build -t xhighhongo41/crawl4tools:1.0.0b3 .` first.
 #
 # Open WebUI: Admin Settings > Web Search > Web Loader Engine = "external",
 # URL = http://<host>:8766/crawl (or http://crawl4tools:8766/crawl when
@@ -210,7 +210,7 @@ The compose file itself:
 
 services:
   crawl4tools:
-    image: xhighhongo41/crawl4tools:1.0.0b2
+    image: xhighhongo41/crawl4tools:1.0.0b3
     ports:
       - "8766:8766"
       - "8765:8765"
@@ -236,7 +236,7 @@ services:
     restart: unless-stopped
 ```
 
-- `image`: the published Docker Hub image at this release's tag (`xhighhongo41/crawl4tools:1.0.0b2`); to use a local build instead, run the `docker build` command above first, then `docker compose up -d`.
+- `image`: the published Docker Hub image at this release's tag (`xhighhongo41/crawl4tools:1.0.0b3`); to use a local build instead, run the `docker build` command above first, then `docker compose up -d`.
 - `ports`: `8766` is the Open WebUI web loader, `8765` is MCP; to publish only one of them, delete the other line (or bind a port to `127.0.0.1` only, e.g. `"127.0.0.1:8765:8765"`, to keep it off the network entirely).
 - `environment`: uncomment a line to set it. Set `CRAWL4SERVER_LOADER_API_KEY` here to the value configured as Open WebUI's External Web Loader API Key. See the Options table above for every other `CRAWL4SERVER_*` variable.
 - `volumes`: create the host `downloads/` directory first (`mkdir -p downloads`, done above) and make sure it is writable by uid 1000, the user the container runs as.

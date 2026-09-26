@@ -12,7 +12,7 @@ crawl4tools は [crawl4ai](https://github.com/unclecode/crawl4ai) ライブラ�
 
 ## 現状
 
-**Beta。** このリリース(1.0.0b2)は crawl4tools のベータ版で、[PyPI](https://pypi.org/project/crawl4tools/) と [Docker Hub](https://hub.docker.com/r/xhighhongo41/crawl4tools) で公開されています。ローカルCLI `crawl4cli`、MCPサーバー `crawl4mcp`、Open WebUI Web loader と MCP を兼ねる `crawl4server` が使え、Dockerfile と compose ファイルも用意されています。メッセージは英語・日本語のどちらでも表示できます。実際に使ってみたフィードバックを歓迎します([Issuesページ](https://github.com/xhighhongo41/crawl4tools/issues)へどうぞ)。このベータ版でのテストを経て、1.0.0 の正式版を予定しています。
+**Beta。** このリリース(1.0.0b3)は crawl4tools のベータ版で、[PyPI](https://pypi.org/project/crawl4tools/) と [Docker Hub](https://hub.docker.com/r/xhighhongo41/crawl4tools) で公開されています。ローカルCLI `crawl4cli`、MCPサーバー `crawl4mcp`、Open WebUI Web loader と MCP を兼ねる `crawl4server` が使え、Dockerfile と compose ファイルも用意されています。メッセージは英語・日本語のどちらでも表示できます。実際に使ってみたフィードバックを歓迎します([Issuesページ](https://github.com/xhighhongo41/crawl4tools/issues)へどうぞ)。このベータ版でのテストを経て、1.0.0 の正式版を予定しています。
 
 ## 機能
 
@@ -185,7 +185,7 @@ docker compose up -d
 curl http://localhost:8766/health
 ```
 
-compose を使わずに同じイメージを直接取得することもできます: `docker pull xhighhongo41/crawl4tools:1.0.0b2`。ベータ版には `latest` タグが付かないため、必ずバージョンタグを指定してください。取得せずローカルでビルドする場合は、`docker build -t xhighhongo41/crawl4tools:1.0.0b2 .` を実行してから `docker compose up -d` してください。
+compose を使わずに同じイメージを直接取得することもできます: `docker pull xhighhongo41/crawl4tools:1.0.0b3`。ベータ版には `latest` タグが付かないため、必ずバージョンタグを指定してください。取得せずローカルでビルドする場合は、`docker build -t xhighhongo41/crawl4tools:1.0.0b3 .` を実行してから `docker compose up -d` してください。
 
 compose ファイルそのもの(コメントは英語のままです):
 
@@ -194,8 +194,8 @@ compose ファイルそのもの(コメントは英語のままです):
 # crawl4tools server (crawl4server): Open WebUI external web loader + MCP.
 #
 # The image is pulled from Docker Hub; `docker compose up -d` fetches
-# xhighhongo41/crawl4tools:1.0.0b2. To build locally instead, run
-# `docker build -t xhighhongo41/crawl4tools:1.0.0b2 .` first.
+# xhighhongo41/crawl4tools:1.0.0b3. To build locally instead, run
+# `docker build -t xhighhongo41/crawl4tools:1.0.0b3 .` first.
 #
 # Open WebUI: Admin Settings > Web Search > Web Loader Engine = "external",
 # URL = http://<host>:8766/crawl (or http://crawl4tools:8766/crawl when
@@ -210,7 +210,7 @@ compose ファイルそのもの(コメントは英語のままです):
 
 services:
   crawl4tools:
-    image: xhighhongo41/crawl4tools:1.0.0b2
+    image: xhighhongo41/crawl4tools:1.0.0b3
     ports:
       - "8766:8766"
       - "8765:8765"
@@ -236,7 +236,7 @@ services:
     restart: unless-stopped
 ```
 
-- `image`: このリリースのタグが付いた公開Dockerイメージ(`xhighhongo41/crawl4tools:1.0.0b2`)。ローカルビルドを使う場合は、上記の `docker build` コマンドを先に実行してから `docker compose up -d` してください。
+- `image`: このリリースのタグが付いた公開Dockerイメージ(`xhighhongo41/crawl4tools:1.0.0b3`)。ローカルビルドを使う場合は、上記の `docker build` コマンドを先に実行してから `docker compose up -d` してください。
 - `ports`: `8766` は Open WebUI Web loader、`8765` は MCP。どちらか一方だけを公開するには、不要な行を削除するか(あるいはネットワークに一切出さないよう `"127.0.0.1:8765:8765"` のように `127.0.0.1` にバインドしてください)。
 - `environment`: 有効にしたい行のコメントを外してください。Open WebUI の External Web Loader API Key に設定した値を `CRAWL4SERVER_LOADER_API_KEY` に設定してください。他の `CRAWL4SERVER_*` 変数は上記のオプション表を参照してください。
 - `volumes`: 先にホスト側の `downloads/` ディレクトリを作成し(上記の `mkdir -p downloads`)、コンテナ実行ユーザーである uid 1000 が書き込めるようにしてください。

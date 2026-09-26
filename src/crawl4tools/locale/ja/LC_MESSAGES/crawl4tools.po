@@ -6,7 +6,7 @@
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: crawl4tools 1.0.0b2\n"
+"Project-Id-Version: crawl4tools 1.0.0b3\n"
 "Report-Msgid-Bugs-To: https://github.com/xhighhongo41/crawl4tools/issues\n"
 "POT-Creation-Date: 2026-09-24 23:53+0900\n"
 "PO-Revision-Date: 2026-09-24 23:53+0900\n"
