@@ -28,10 +28,11 @@ _DEFAULT_HTML = "<html><body><h1>Hello</h1></body></html>"
 def make_result(**overrides: Any) -> SimpleNamespace:
     """Return a fake crawl4ai ``CrawlResult`` with every field defaulted.
 
-    ``final_response=(status, headers)`` is not a ``CrawlResult`` field: it is
-    the last response of the redirect chain, which ``FakeCrawler.arun`` hands
-    to the registered ``after_goto`` hook the way crawl4ai does. Without it
-    the hook is not called.
+    ``final_response=(status, headers)`` or ``(status, headers, body)`` is not
+    a ``CrawlResult`` field: it is the last response of the redirect chain,
+    which ``FakeCrawler.arun`` hands to the registered ``after_goto`` hook the
+    way crawl4ai does. Without it the hook is not called. Without a body (or
+    with ``None``), reading the response's body fails.
     """
     markdown = SimpleNamespace(
         raw_markdown=overrides.pop("raw_markdown", "# Hello"),
@@ -160,8 +161,16 @@ class FakeCrawler:
         hook = hooks.get("after_goto")
         if final_response is None or hook is None:
             return
-        status, headers = final_response
-        response = SimpleNamespace(status=status, headers=headers)
+        status, headers, *rest = final_response
+        content: bytes | None = rest[0] if rest else None
+
+        async def body() -> bytes:
+            # Like Playwright's Response.body() when the body is not available.
+            if content is None:
+                raise RuntimeError("no body")
+            return content
+
+        response = SimpleNamespace(status=status, headers=headers, body=body)
         await hook(None, context=None, url=url, response=response, config=config)
 
 

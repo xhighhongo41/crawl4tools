@@ -635,6 +635,23 @@ async def test_browser_non_html_without_html_is_downloaded(sample_pdf: bytes) ->
     assert len(http.requests) == 2
 
 
+async def test_browser_non_html_without_html_uses_the_body_the_browser_received(
+    sample_pdf: bytes,
+) -> None:
+    pdf_headers = {"content-type": "application/pdf"}
+    crawler = FakeCrawler(
+        make_result(
+            html="", response_headers=pdf_headers, final_response=(200, pdf_headers, sample_pdf)
+        )
+    )
+    outcome, _, http = await fetch_one(crawler=crawler)
+    assert outcome.ok, outcome.error
+    assert outcome.content_kind is ContentKind.PDF
+    assert outcome.text is not None and "Hello crawl4tools" in outcome.text
+    # Only the probe went over HTTP: the file was not downloaded again.
+    assert len(http.requests) == 1
+
+
 async def test_browser_non_html_download_failure() -> None:
     http = sequenced(response("text/html", b"", status=503))
     crawler = FakeCrawler(
@@ -1619,7 +1636,7 @@ async def test_after_goto_hook_returns_the_page_and_keeps_the_final_response() -
     page = object()
     response = SimpleNamespace(status=403, headers=CHALLENGE_HEADERS)
     assert await fetcher._after_goto(page, context=None, url=URL, response=response) is page
-    assert fetcher._final_responses == {URL: (403, CHALLENGE_HEADERS)}
+    assert fetcher._final_responses == {URL: (403, CHALLENGE_HEADERS, None)}
 
 
 @pytest.mark.parametrize(
@@ -1692,3 +1709,238 @@ async def test_hook_entry_is_dropped_when_the_crawl_fails() -> None:
         outcome = await fetcher.fetch(URL)
     assert not outcome.ok
     assert fetcher._final_responses == {}
+
+
+# --- non-HTML responses crawl4ai's anti-bot check rejects (1.0.0b3 T5) --------------------
+
+IMAGE_URL = "https://example.com/pixel.png"
+IMAGE_FINAL_URL = "https://cdn.example.com/pixel.png"
+PNG_BYTES = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
+PNG_HEADERS = {"content-type": "image/png"}
+HOOK_BODY_LIMIT = 64 * 1024 * 1024
+# Chromium shows an image as a document wrapping it, which crawl4ai's structural
+# check (it does not look at the content type) takes for a blocked page.
+IMAGE_DOCUMENT = (
+    '<html><head><meta name="viewport" content="width=device-width, minimum-scale=0.1">'
+    '</head><body style="margin: 0px;"><img src="https://example.com/pixel.png"></body></html>'
+)
+STRUCTURAL_VERDICT = (
+    "Blocked by anti-bot protection: Structural: minimal_text, no_content_elements "
+    "(459 bytes, 0 chars visible)"
+)
+
+
+def image_blocked(
+    final_response: tuple[Any, ...] | None = (200, PNG_HEADERS, PNG_BYTES), **overrides: Any
+) -> Any:
+    """An image the browser received with 200, rejected by crawl4ai's anti-bot check."""
+    fields: dict[str, Any] = {
+        "success": False,
+        "error_message": STRUCTURAL_VERDICT,
+        "status_code": 200,
+        "url": IMAGE_URL,
+        "response_headers": PNG_HEADERS,
+        "html": IMAGE_DOCUMENT,
+        "final_response": final_response,
+    }
+    fields.update(overrides)
+    return make_result(**fields)
+
+
+def tls_failing_http() -> FakeHttp:
+    """HTTP mock failing like a client that does not trust an intercepting proxy."""
+    return FakeHttp(raising(httpx.ConnectError(TLS_TEXT)))
+
+
+@pytest.mark.parametrize("proxy", [None, PROXY], ids=["direct", "through-proxy"])
+async def test_anti_bot_verdict_on_an_image_saves_the_body_the_browser_received(
+    proxy: str | None,
+) -> None:
+    outcome, crawler, http = await fetch_one(
+        FetchOptions(proxy=proxy),
+        crawler=FakeCrawler(image_blocked()),
+        http=tls_failing_http(),
+        url=IMAGE_URL,
+    )
+    assert outcome.ok, outcome.error
+    assert outcome.content_kind is ContentKind.BINARY
+    assert outcome.data == PNG_BYTES
+    assert outcome.content_type == "image/png"
+    assert outcome.status_code == 200
+    assert outcome.final_url == IMAGE_URL
+    assert outcome.suggested_extension == ".png"
+    assert note_texts(outcome) == ["not a web page (image/png); saved the original file"]
+    # Only the probe went over HTTP: the image was not downloaded again.
+    assert http.proxies == [proxy]
+    assert len(http.requests) == 1
+    assert len(crawler.calls) == 1
+
+
+async def test_anti_bot_verdict_on_a_redirected_image_reports_the_final_url() -> None:
+    result = image_blocked(
+        status_code=302,
+        redirected_status_code=200,
+        redirected_url=IMAGE_FINAL_URL,
+        response_headers={"location": IMAGE_FINAL_URL},
+    )
+    outcome, _, http = await fetch_one(
+        crawler=FakeCrawler(result), http=tls_failing_http(), url=IMAGE_URL
+    )
+    assert outcome.ok, outcome.error
+    assert outcome.data == PNG_BYTES
+    assert outcome.status_code == 200
+    assert outcome.final_url == IMAGE_FINAL_URL
+    assert len(http.requests) == 1
+
+
+async def test_anti_bot_verdict_on_an_image_without_a_redirected_url() -> None:
+    result = image_blocked()
+    del result.redirected_url
+    outcome, _, _ = await fetch_one(
+        crawler=FakeCrawler(result), http=tls_failing_http(), url=IMAGE_URL
+    )
+    assert outcome.ok, outcome.error
+    assert outcome.final_url == IMAGE_URL
+
+
+@pytest.mark.parametrize(
+    "final_response",
+    [
+        pytest.param((200, PNG_HEADERS), id="hook-without-body"),
+        pytest.param(None, id="no-hook"),
+    ],
+)
+async def test_anti_bot_verdict_on_an_image_without_its_body_downloads_it(
+    final_response: tuple[Any, ...] | None,
+) -> None:
+    http = sequenced(response("text/html", b"", status=503), response("image/png", b"downloaded"))
+    crawler = FakeCrawler(image_blocked(final_response))
+    outcome, crawler, http = await fetch_one(crawler=crawler, http=http, url=IMAGE_URL)
+    assert outcome.ok, outcome.error
+    assert outcome.content_kind is ContentKind.BINARY
+    assert outcome.data == b"downloaded"
+    assert note_texts(outcome) == ["not a web page (image/png); saved the original file"]
+    assert len(http.requests) == 2
+    assert len(crawler.calls) == 1
+
+
+async def test_anti_bot_verdict_on_an_unkept_image_reports_the_download_failure() -> None:
+    crawler = FakeCrawler(image_blocked((200, PNG_HEADERS)))
+    outcome, _, http = await fetch_one(crawler=crawler, http=tls_failing_http(), url=IMAGE_URL)
+    assert not outcome.ok
+    assert isinstance(outcome.error, TlsFetchError)
+    assert http.proxies == [None, None]
+
+
+async def test_anti_bot_verdict_ignores_a_body_kept_for_another_status() -> None:
+    http = sequenced(response("text/html", b"", status=503), response("image/png", b"downloaded"))
+    crawler = FakeCrawler(image_blocked((203, PNG_HEADERS, PNG_BYTES)))
+    outcome, _, http = await fetch_one(crawler=crawler, http=http, url=IMAGE_URL)
+    assert outcome.ok, outcome.error
+    assert outcome.data == b"downloaded"
+    assert len(http.requests) == 2
+
+
+@pytest.mark.parametrize(
+    "headers",
+    [
+        pytest.param({"content-type": "text/html; charset=utf-8"}, id="html"),
+        pytest.param({"content-type": "application/xhtml+xml"}, id="xhtml"),
+        pytest.param({}, id="no-content-type"),
+    ],
+)
+async def test_anti_bot_verdict_on_a_page_stays_a_generic_failure(headers: dict[str, str]) -> None:
+    result = image_blocked((200, headers, b"<html></html>"), response_headers=headers)
+    outcome, crawler, http = await fetch_one(crawler=FakeCrawler(result), url=IMAGE_URL)
+    assert not outcome.ok
+    assert outcome.error is not None
+    assert outcome.error.kind is FailureKind.OTHER
+    assert STRUCTURAL_VERDICT in str(outcome.error)
+    assert len(http.requests) == 1
+    assert len(crawler.calls) == 1
+
+
+async def test_anti_bot_verdict_on_an_image_with_an_error_status_is_that_status() -> None:
+    result = image_blocked((403, PNG_HEADERS, PNG_BYTES), status_code=403)
+    outcome, _, http = await fetch_one(crawler=FakeCrawler(result), url=IMAGE_URL)
+    assert not outcome.ok
+    assert isinstance(outcome.error, HttpStatusError)
+    assert outcome.status_code == 403
+    assert len(http.requests) == 1
+
+
+class HookResponse:
+    """A Playwright-like final response for the ``after_goto`` hook, counting body reads."""
+
+    def __init__(
+        self, status: int, headers: dict[str, str], body: bytes | Exception = PNG_BYTES
+    ) -> None:
+        self.status = status
+        self.headers = headers
+        self._body = body
+        self.body_reads = 0
+
+    async def body(self) -> bytes:
+        self.body_reads += 1
+        if isinstance(self._body, Exception):
+            raise self._body
+        return self._body
+
+
+@pytest.mark.parametrize(
+    "headers",
+    [
+        pytest.param(PNG_HEADERS, id="no-content-length"),
+        pytest.param({"Content-Type": "image/png; x=1", "Content-Length": "15"}, id="small"),
+        pytest.param(
+            {"content-type": "image/png", "content-length": str(HOOK_BODY_LIMIT)}, id="at-limit"
+        ),
+    ],
+)
+async def test_after_goto_hook_keeps_the_body_of_a_non_html_response(
+    headers: dict[str, str],
+) -> None:
+    fetcher, _, _ = make_fetcher()
+    response = HookResponse(200, headers)
+    await fetcher._after_goto(None, url=URL, response=response)
+    assert fetcher._final_responses == {URL: (200, headers, PNG_BYTES)}
+    assert response.body_reads == 1
+
+
+@pytest.mark.parametrize(
+    ("status", "headers"),
+    [
+        pytest.param(200, {"content-type": "text/html; charset=utf-8"}, id="html"),
+        pytest.param(200, {"content-type": "application/xhtml+xml"}, id="xhtml"),
+        pytest.param(200, {}, id="no-content-type"),
+        pytest.param(404, PNG_HEADERS, id="not-found"),
+        pytest.param(304, PNG_HEADERS, id="not-modified"),
+        pytest.param(
+            200, {"content-type": "image/png", "content-length": "99999999999"}, id="too-large"
+        ),
+        pytest.param(
+            200,
+            {"content-type": "image/png", "content-length": str(HOOK_BODY_LIMIT + 1)},
+            id="just-over-limit",
+        ),
+        pytest.param(
+            200, {"content-type": "image/png", "content-length": "unknown"}, id="bad-length"
+        ),
+    ],
+)
+async def test_after_goto_hook_does_not_read_bodies_it_cannot_use(
+    status: int, headers: dict[str, str]
+) -> None:
+    fetcher, _, _ = make_fetcher()
+    response = HookResponse(status, headers)
+    await fetcher._after_goto(None, url=URL, response=response)
+    assert fetcher._final_responses == {URL: (status, headers, None)}
+    assert response.body_reads == 0
+
+
+async def test_after_goto_hook_keeps_the_response_when_its_body_cannot_be_read() -> None:
+    fetcher, _, _ = make_fetcher()
+    response = HookResponse(200, PNG_HEADERS, RuntimeError("body is unavailable"))
+    await fetcher._after_goto(None, url=URL, response=response)
+    assert fetcher._final_responses == {URL: (200, PNG_HEADERS, None)}
+    assert response.body_reads == 1
