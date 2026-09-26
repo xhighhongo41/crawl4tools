@@ -201,8 +201,17 @@ msgstr "プロキシ URL にポートがありません: {proxy}"
 msgid "must start with '/'"
 msgstr "'/' で始めてください"
 
-msgid "Enable verbose logging."
-msgstr "詳細なログを出力します。"
+msgid ""
+"Log level: debug (everything), info (fetches, warnings and errors), or "
+"error (warnings and errors only)."
+msgstr "ログレベルです。debug(すべて)、info(取得、警告、エラー)、error(警告とエラーのみ)のいずれかです。"
+
+msgid ""
+"Keep the files saved by the download tool on the server after a client "
+"fetched them over HTTP (by default the server deletes its copy then)."
+msgstr ""
+"download ツールが保存したファイルを、クライアントが HTTP "
+"で取得した後もサーバーに残します(既定ではその時点でサーバー側のコピーを削除します)。"
 
 msgid "Language of messages: en or ja."
 msgstr "メッセージの言語(en または ja)です。"
@@ -540,6 +549,10 @@ msgstr "max_urls は 1 以上にしてください(指定値: {value})"
 #, python-brace-format
 msgid "timeout_s must be greater than 0, got {value}"
 msgstr "timeout_s は 0 より大きくしてください(指定値: {value})"
+
+#, python-brace-format
+msgid "unsupported log level: {value} (choose from {choices})"
+msgstr "対応していないログレベルです: {value}(選択肢: {choices})"
 
 #, python-brace-format
 msgid "unsupported language: {lang} (supported: {supported})"

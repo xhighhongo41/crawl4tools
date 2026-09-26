@@ -1057,3 +1057,18 @@ async def test_japanese_directory_creation_failure(tmp_path: Path) -> None:
     assert result.is_error
     target = tmp_path.resolve() / "blocker" / "sub"
     assert f"{target} を作成できません: " in texts(result)[0]
+
+
+# --- uvicorn log level of the http transport ----------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("log_level", "expected"),
+    [("debug", "INFO"), ("info", "WARNING"), ("error", "WARNING")],
+    ids=["debug", "info", "error"],
+)
+def test_server_log_level_follows_the_settings(
+    tmp_path: Path, log_level: str, expected: str
+) -> None:
+    server, _, _ = make_server(tmp_path, log_level=log_level)
+    assert server.settings.log_level == expected

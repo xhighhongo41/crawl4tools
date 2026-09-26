@@ -80,7 +80,8 @@ Every option also has a `--flag` and a config-file key; see the full reference i
 | `CRAWL4SERVER_MAX_URLS` | `20` | Maximum URLs accepted per web loader request or MCP tool call |
 | `CRAWL4SERVER_TIMEOUT` | `60` | Default per-URL timeout, in seconds |
 | `CRAWL4SERVER_LANG` | `en` | Language of messages the server produces while running (`en` or `ja`) |
-| `CRAWL4SERVER_VERBOSE` | off | Verbose logging on stderr |
+| `CRAWL4SERVER_LOG_LEVEL` | `info` | Log level on stderr: `debug` (everything), `info` (each fetch, warnings, errors), `error` (warnings and errors only) |
+| `CRAWL4SERVER_KEEP_DOWNLOADS` | off | Keep the files saved by the MCP `download` tool on the server after a client fetched them from their `file_url` (by default the server deletes its copy then) |
 
 ## Ports and volumes
 

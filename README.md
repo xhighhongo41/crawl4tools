@@ -141,7 +141,8 @@ Settings are resolved in this order: command-line option > `CRAWL4SERVER_*` envi
 | `-j, --concurrency N` | `CRAWL4SERVER_CONCURRENCY` | `concurrency` | `3` | Maximum URLs fetched at once across both ports |
 | `--max-urls N` | `CRAWL4SERVER_MAX_URLS` | `max_urls` | `20` | Maximum URLs accepted per web loader request or MCP tool call; Open WebUI sends up to 20, so keep this at 20 or more |
 | `--download-dir DIR` | `CRAWL4SERVER_DOWNLOAD_DIR` | `download_dir` | `.` | Root directory the MCP `download` tool saves files into |
-| `-v, --verbose` | `CRAWL4SERVER_VERBOSE` | `verbose` | off | Verbose logging on stderr |
+| `--log-level LEVEL` | `CRAWL4SERVER_LOG_LEVEL` | `log_level` | `info` | Log level on stderr: `debug` (everything, incl. crawl4ai and uvicorn access logs), `info` (each fetch, warnings, errors), `error` (warnings and errors only) |
+| `--keep-downloads` | `CRAWL4SERVER_KEEP_DOWNLOADS` | `keep_downloads` | off | Keep the files saved by the MCP `download` tool on the server after a client fetched them from their `file_url` (by default the server deletes its copy then) |
 | `--lang en\|ja` | `CRAWL4SERVER_LANG` | `lang` | `en` | Language of messages the server produces while running (see [Language of messages](#language-of-messages)) |
 | `--config FILE` | `CRAWL4SERVER_CONFIG` | — | *(none)* | YAML or JSON config file (see [Configuration](#configuration) below) |
 
@@ -320,7 +321,8 @@ Settings are resolved in this order: command-line option > `CRAWL4MCP_*` environ
 | `-j, --concurrency N` | `CRAWL4MCP_CONCURRENCY` | `concurrency` | `3` | Maximum URLs fetched at once across every tool call |
 | `--max-urls N` | `CRAWL4MCP_MAX_URLS` | `max_urls` | `20` | Maximum URLs accepted in a single tool call |
 | `--download-dir DIR` | `CRAWL4MCP_DOWNLOAD_DIR` | `download_dir` | `.` | Root directory the `download` tool saves files into |
-| `-v, --verbose` | `CRAWL4MCP_VERBOSE` | `verbose` | off | Verbose logging on stderr |
+| `--log-level LEVEL` | `CRAWL4MCP_LOG_LEVEL` | `log_level` | `info` | Log level on stderr: `debug` (everything, incl. crawl4ai and uvicorn access logs), `info` (each fetch, warnings, errors), `error` (warnings and errors only) |
+| `--keep-downloads` | `CRAWL4MCP_KEEP_DOWNLOADS` | `keep_downloads` | off | Keep the files saved by the `download` tool on the server after a client fetched them from their `file_url` (by default the server deletes its copy then) |
 | `--lang en\|ja` | `CRAWL4MCP_LANG` | `lang` | `en` | Language of messages the server produces while running (see [Language of messages](#language-of-messages)) |
 | `--config FILE` | `CRAWL4MCP_CONFIG` | — | *(none)* | YAML or JSON config file (see [Configuration](#configuration-1) below) |
 

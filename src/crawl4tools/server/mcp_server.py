@@ -304,6 +304,10 @@ def build_server(
 
     The texts sent to the clients are translated by ``settings.translator``
     once, when the server is built.
+
+    The uvicorn server that ``run(transport="streamable-http")`` starts logs
+    at INFO, with its access log, only when ``settings.log_level`` is
+    ``debug``, and at WARNING otherwise.
     """
     t = settings.translator
     descriptions = _parameter_descriptions(t)
@@ -322,6 +326,7 @@ def build_server(
         instructions=_instructions(settings, t),
         version=__version__,
         lifespan=lifespan,
+        log_level="INFO" if settings.log_level == "debug" else "WARNING",
     )
     server.custom_route(FILES_PATH, methods=["GET"])(files_route(registry, t))
 

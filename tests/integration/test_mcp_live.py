@@ -7,6 +7,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Iterator
+from dataclasses import dataclass
 from pathlib import Path
 
 import httpx
@@ -15,9 +16,14 @@ from mcp.client.client import Client
 from mcp.client.stdio import StdioServerParameters
 from mcp.types import CallToolResult, TextContent
 
+from crawl4tools import __version__
+
 pytestmark = pytest.mark.integration
 
 _MAIN = [sys.executable, "-m", "crawl4tools.server.mcp_main"]
+
+# The start of the first line crawl4mcp prints on stderr, over either transport.
+_VERSION_PREFIX = f"crawl4mcp {__version__} ("
 
 
 def _text(result: CallToolResult) -> str:
@@ -67,8 +73,28 @@ async def test_stdio_download_saves_file(tmp_path: Path) -> None:
     assert "Example Domain" in saved.read_text(encoding="utf-8")
 
 
+def test_stdio_prints_the_version_first(tmp_path: Path) -> None:
+    # An empty stdin ends the stdio session at once, so the server exits by itself.
+    completed = subprocess.run(
+        [*_MAIN, "--download-dir", str(tmp_path)],
+        input=b"",
+        capture_output=True,
+        timeout=60,
+        check=False,
+    )
+    stderr = completed.stderr.decode()
+    assert stderr.splitlines()[0].startswith(_VERSION_PREFIX), stderr
+    assert completed.stdout == b""
+
+
+@dataclass
+class HttpServer:
+    process: subprocess.Popen[bytes]
+    url: str
+
+
 @pytest.fixture
-def http_server(tmp_path: Path) -> Iterator[str]:
+def http_process(tmp_path: Path) -> Iterator[HttpServer]:
     port = _free_port()
     process = subprocess.Popen(
         [
@@ -97,13 +123,25 @@ def http_server(tmp_path: Path) -> Iterator[str]:
             time.sleep(0.2)
         else:
             pytest.fail("crawl4mcp did not start listening")
-        yield f"http://127.0.0.1:{port}/mcp"
+        yield HttpServer(process, f"http://127.0.0.1:{port}/mcp")
     finally:
         process.terminate()
         try:
             process.wait(timeout=10)
         except subprocess.TimeoutExpired:
             process.kill()
+
+
+@pytest.fixture
+def http_server(http_process: HttpServer) -> str:
+    return http_process.url
+
+
+def test_http_prints_the_version_first(http_process: HttpServer) -> None:
+    assert http_process.process.stderr is not None
+    # The server is listening, so the lines printed before that are already written.
+    first_line = http_process.process.stderr.readline().decode()
+    assert first_line.startswith(_VERSION_PREFIX), first_line
 
 
 async def test_http_fetch_returns_markdown(http_server: str) -> None:

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import sys
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +22,7 @@ from crawl4tools.server.cli_options import (
     setup_logging,
     version_option,
 )
+from crawl4tools.server.settings import LogLevel
 
 JA = get_translator("ja")
 
@@ -60,7 +63,8 @@ def test_fetch_options_order_and_help() -> None:
         "concurrency",
         "max_urls",
         "download_dir",
-        "verbose",
+        "log_level",
+        "keep_downloads",
         "config",
     ]
     result = CliRunner().invoke(command, ["--help"])
@@ -76,7 +80,8 @@ def test_fetch_options_defaults() -> None:
     assert captured["proxy"] is None
     assert captured["fallback"] is True
     assert captured["download_dir"] == Path(".")
-    assert captured["verbose"] is False
+    assert captured["log_level"] == "info"
+    assert captured["keep_downloads"] is False
     assert "config" not in captured
 
 
@@ -135,10 +140,89 @@ def test_misc_helpers() -> None:
     assert package_version("click") != "unknown"
 
 
-def test_setup_logging_silences_noisy_loggers() -> None:
-    logging.getLogger("httpx").setLevel(logging.NOTSET)
-    setup_logging(False)
-    assert logging.getLogger("httpx").level == logging.WARNING
+@pytest.fixture
+def basic_config(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[dict[str, Any]]]:
+    """Record the logging.basicConfig() calls instead of configuring the root logger.
+
+    pytest keeps its own handlers on the root logger, which would turn a real
+    basicConfig() into a no-op. The HTTP client loggers start at NOTSET and
+    get their levels back afterwards.
+    """
+    calls: list[dict[str, Any]] = []
+    monkeypatch.setattr(logging, "basicConfig", lambda **kwargs: calls.append(kwargs))
+    loggers = [logging.getLogger(name) for name in ("httpx", "httpcore")]
+    saved = [logger.level for logger in loggers]
+    for logger in loggers:
+        logger.setLevel(logging.NOTSET)
+    yield calls
+    for logger, level in zip(loggers, saved, strict=True):
+        logger.setLevel(level)
+
+
+@pytest.mark.parametrize(
+    ("level", "root_level", "noisy_level"),
+    [
+        ("debug", logging.DEBUG, logging.NOTSET),
+        ("info", logging.INFO, logging.WARNING),
+        ("error", logging.WARNING, logging.WARNING),
+    ],
+    ids=["debug", "info", "error"],
+)
+def test_setup_logging_levels(
+    basic_config: list[dict[str, Any]], level: LogLevel, root_level: int, noisy_level: int
+) -> None:
+    setup_logging(level)
+    assert basic_config == [
+        {
+            "stream": sys.stderr,
+            "level": root_level,
+            "format": "%(levelname)s %(name)s: %(message)s",
+        }
+    ]
+    assert logging.getLogger("httpx").level == noisy_level
+    assert logging.getLogger("httpcore").level == noisy_level
+
+
+@pytest.mark.parametrize(
+    ("args", "env", "expected"),
+    [
+        ([], {}, "info"),
+        (["--log-level", "debug"], {}, "debug"),
+        (["--log-level", "error"], {}, "error"),
+        ([], {"TESTCMD_LOG_LEVEL": "debug"}, "debug"),
+    ],
+    ids=["default", "debug", "error", "envvar"],
+)
+def test_log_level_option_values(args: list[str], env: dict[str, str], expected: str) -> None:
+    captured: dict[str, Any] = {}
+    result = CliRunner().invoke(make_command(captured), args, env=env)
+    assert result.exit_code == 0, result.output
+    assert captured["log_level"] == expected
+
+
+def test_log_level_option_rejects_unknown_level() -> None:
+    captured: dict[str, Any] = {}
+    result = CliRunner().invoke(make_command(captured), ["--log-level", "warning"])
+    assert result.exit_code == 2
+    assert "Invalid value for '--log-level'" in result.output
+    assert captured == {}
+
+
+def test_keep_downloads_option() -> None:
+    captured: dict[str, Any] = {}
+    result = CliRunner().invoke(make_command(captured), ["--keep-downloads"])
+    assert result.exit_code == 0, result.output
+    assert captured["keep_downloads"] is True
+
+
+def test_log_level_help_lists_levels_and_default() -> None:
+    result = CliRunner().invoke(make_command({}), ["--help"])
+    assert result.exit_code == 0
+    assert "--log-level [debug|info|error]" in result.output
+    assert "[default: info]" in result.output
+    assert result.output.index("--download-dir") < result.output.index("--log-level")
+    assert result.output.index("--log-level") < result.output.index("--keep-downloads")
+    assert "--verbose" not in result.output
 
 
 # --- translated texts --------------------------------------------------------------
@@ -154,7 +238,14 @@ def test_shared_option_help_in_english() -> None:
     assert helps["fallback"] == (
         "Retry without the proxy when the proxy itself appears to be at fault."
     )
-    assert helps["verbose"] == "Enable verbose logging."
+    assert helps["log_level"] == (
+        "Log level: debug (everything), info (fetches, warnings and errors), "
+        "or error (warnings and errors only)."
+    )
+    assert helps["keep_downloads"] == (
+        "Keep the files saved by the download tool on the server after a client fetched "
+        "them over HTTP (by default the server deletes its copy then)."
+    )
 
 
 def test_shared_option_help_in_japanese() -> None:
@@ -165,7 +256,14 @@ def test_shared_option_help_in_japanese() -> None:
     assert helps["fallback"] == (
         "プロキシ自体に問題があると見られる場合は、プロキシなしで再試行します。"
     )
-    assert helps["verbose"] == "詳細なログを出力します。"
+    assert helps["log_level"] == (
+        "ログレベルです。debug(すべて)、info(取得、警告、エラー)、"
+        "error(警告とエラーのみ)のいずれかです。"
+    )
+    assert helps["keep_downloads"] == (
+        "download ツールが保存したファイルを、クライアントが HTTP で取得した後もサーバーに"
+        "残します(既定ではその時点でサーバー側のコピーを削除します)。"
+    )
     # The help texts given by the caller are used as they are.
     assert helps["timeout"] == HELPS["timeout_help"]
     assert helps["config"] == "CONFIG-HELP"

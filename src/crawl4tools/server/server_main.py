@@ -49,7 +49,7 @@ from crawl4tools.server.cli_options import (
 )
 from crawl4tools.server.host import McpSettings, StartedCallback
 from crawl4tools.server.loader import LoaderSettings
-from crawl4tools.server.settings import ServerSettings
+from crawl4tools.server.settings import LogLevel, ServerSettings
 
 # The variable naming the message language. The --lang option reads it as
 # well, and click rejects unsupported values there.
@@ -76,7 +76,8 @@ SERVER_CONFIG_KEYS: frozenset[str] = frozenset(
         "concurrency",
         "max_urls",
         "download_dir",
-        "verbose",
+        "log_level",
+        "keep_downloads",
         "lang",
     }
 )
@@ -124,7 +125,7 @@ def run_server(
     host: str,
     loader_port: int,
     mcp_port: int,
-    verbose: bool,
+    log_level: LogLevel,
     on_started: StartedCallback | None,
 ) -> None:
     """Serve *settings* on *host*, both ports at once.
@@ -139,7 +140,7 @@ def run_server(
         host=host,
         loader_port=loader_port,
         mcp_port=mcp_port,
-        verbose=verbose,
+        log_level=log_level,
         on_started=on_started,
     )
 
@@ -253,11 +254,14 @@ def build_command(t: Translator) -> click.Command:
         concurrency: int,
         max_urls: int,
         download_dir: Path,
-        verbose: bool,
+        log_level: LogLevel,
+        keep_downloads: bool,
         lang: str,
     ) -> None:
         # No docstring: the help comes from help= above so that it is translated.
-        setup_logging(verbose)
+        setup_logging(log_level)
+        # The version comes first on stderr, so every log tells which build wrote it.
+        click.echo(version_text().splitlines()[0], err=True)
 
         settings = ServerSettings(
             proxy=proxy,
@@ -266,7 +270,8 @@ def build_command(t: Translator) -> click.Command:
             concurrency=concurrency,
             max_urls=max_urls,
             download_root=download_dir.resolve(),
-            verbose=verbose,
+            log_level=log_level,
+            keep_downloads=keep_downloads,
             lang=lang,
         )
         runtime = settings.translator
@@ -317,7 +322,7 @@ def build_command(t: Translator) -> click.Command:
                 host=host,
                 loader_port=loader_port,
                 mcp_port=mcp_port,
-                verbose=verbose,
+                log_level=log_level,
                 on_started=on_started,
             )
         except OSError as exc:

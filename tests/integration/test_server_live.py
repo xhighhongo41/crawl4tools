@@ -124,6 +124,7 @@ async def test_loader_and_mcp_share_one_process(start_server: Callable[..., Runn
     returncode, stdout, stderr = server.stop()
     assert returncode == 0
     assert stdout == ""
+    assert stderr.splitlines()[0].startswith(f"crawl4server {__version__} ("), stderr
     assert "crawl4server: serving Open WebUI web loader on http://127.0.0.1:" in stderr
     assert "crawl4server: serving MCP on http://127.0.0.1:" in stderr
     assert "Traceback" not in stderr

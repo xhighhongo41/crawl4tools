@@ -34,6 +34,8 @@ from crawl4tools.server.settings import (
     DEFAULT_CONCURRENCY,
     DEFAULT_MAX_URLS,
     DEFAULT_TIMEOUT_S,
+    LOG_LEVELS,
+    LogLevel,
 )
 
 F = TypeVar("F", bound=Callable[..., Any])
@@ -43,9 +45,17 @@ OptionalStrCallback = Callable[[click.Context, click.Parameter, str | None], str
 #: A click callback checking the value of a string option.
 StrCallback = Callable[[click.Context, click.Parameter, str], str]
 
-# Loggers that crawl4ai's HTTP dependencies use directly; silenced unless
-# --verbose is given so ordinary runs stay quiet on stderr.
+# Loggers that crawl4ai's HTTP dependencies use directly; held at WARNING
+# unless --log-level is debug so ordinary runs stay quiet on stderr.
 _NOISY_LOGGERS = ("httpx", "httpcore")
+
+# The root logger's level for each --log-level. "error" keeps WARNING too:
+# the servers log the failures of single URLs (not of the request) there.
+_ROOT_LEVELS: dict[LogLevel, int] = {
+    "debug": logging.DEBUG,
+    "info": logging.INFO,
+    "error": logging.WARNING,
+}
 
 #: Hosts considered local to the machine running the server; binding to any
 #: other host earns a warning since the server has no authentication.
@@ -60,17 +70,19 @@ def package_version(name: str) -> str:
         return "unknown"
 
 
-def setup_logging(verbose: bool) -> None:
-    """Configure logging to stderr; INFO when *verbose*, WARNING otherwise.
+def setup_logging(level: LogLevel) -> None:
+    """Configure logging to stderr for the log *level*.
 
-    Unless *verbose*, the noisy HTTP client loggers are held at WARNING too.
+    The root logger is at DEBUG for ``debug``, INFO for ``info`` and
+    WARNING for ``error``. Unless *level* is ``debug``, the noisy HTTP
+    client loggers are held at WARNING too.
     """
     logging.basicConfig(
         stream=sys.stderr,
-        level=logging.INFO if verbose else logging.WARNING,
+        level=_ROOT_LEVELS[level],
         format="%(levelname)s %(name)s: %(message)s",
     )
-    if not verbose:
+    if level != "debug":
         for name in _NOISY_LOGGERS:
             logging.getLogger(name).setLevel(logging.WARNING)
 
@@ -119,7 +131,8 @@ def fetch_option_decorators(
 
     The options are, in ``--help`` order: ``--proxy``,
     ``--fallback/--no-fallback``, ``--timeout``, ``-j/--concurrency``,
-    ``--max-urls``, ``--download-dir`` and ``-v/--verbose``. The help texts
+    ``--max-urls``, ``--download-dir``, ``--log-level`` and
+    ``--keep-downloads``. The help texts
     of the four options whose scope differs between commands are given by
     the caller, already translated; the others and the ``--proxy`` error
     are translated by *t*.
@@ -172,12 +185,25 @@ def fetch_option_decorators(
             help=download_dir_help,
         ),
         click.option(
-            "-v",
-            "--verbose",
-            "verbose",
+            "--log-level",
+            "log_level",
+            type=click.Choice(LOG_LEVELS),
+            default="info",
+            show_default=True,
+            help=t.gettext(
+                "Log level: debug (everything), info (fetches, warnings and errors), "
+                "or error (warnings and errors only)."
+            ),
+        ),
+        click.option(
+            "--keep-downloads",
+            "keep_downloads",
             is_flag=True,
             default=False,
-            help=t.gettext("Enable verbose logging."),
+            help=t.gettext(
+                "Keep the files saved by the download tool on the server after a client "
+                "fetched them over HTTP (by default the server deletes its copy then)."
+            ),
         ),
     ]
 

@@ -49,7 +49,7 @@ class _Recorder:
         host: str,
         loader_port: int,
         mcp_port: int,
-        verbose: bool,
+        log_level: str,
         on_started: Any,
     ) -> None:
         self.calls.append(
@@ -60,7 +60,7 @@ class _Recorder:
                 "host": host,
                 "loader_port": loader_port,
                 "mcp_port": mcp_port,
-                "verbose": verbose,
+                "log_level": log_level,
             }
         )
         if isinstance(self._run_effect, OSError):
@@ -85,6 +85,11 @@ def install(
 
 def invoke(args: list[str], **kwargs: Any) -> Any:
     return CliRunner().invoke(main, args, **kwargs)
+
+
+def version_line() -> str:
+    """Return the first line of ``crawl4server --version``, printed first on every start."""
+    return server_main.version_text().splitlines()[0]
 
 
 # --- --version -----------------------------------------------------------------
@@ -113,7 +118,7 @@ def test_defaults_are_settings_defaults(monkeypatch: pytest.MonkeyPatch, tmp_pat
     assert call["host"] == "127.0.0.1"
     assert call["loader_port"] == 8766
     assert call["mcp_port"] == 8765
-    assert call["verbose"] is False
+    assert call["log_level"] == "info"
     assert call["settings"] == ServerSettings(download_root=tmp_path.resolve())
     assert call["loader"] == LoaderSettings(path="/crawl", api_key=None, fit=False)
     assert call["mcp"] == McpSettings(path="/mcp")
@@ -152,7 +157,9 @@ def test_all_cli_options_reach_settings(monkeypatch: pytest.MonkeyPatch, tmp_pat
             "5",
             "--download-dir",
             str(download_dir),
-            "--verbose",
+            "--log-level",
+            "debug",
+            "--keep-downloads",
         ]
     )
     assert result.exit_code == 0, result.output
@@ -160,7 +167,7 @@ def test_all_cli_options_reach_settings(monkeypatch: pytest.MonkeyPatch, tmp_pat
     assert call["host"] == "127.0.0.1"
     assert call["loader_port"] == 9001
     assert call["mcp_port"] == 9002
-    assert call["verbose"] is True
+    assert call["log_level"] == "debug"
     assert call["loader"] == LoaderSettings(path="/ingest", api_key="s3cr3t-value", fit=True)
     assert call["mcp"] == McpSettings(path="/mcp2")
     settings = call["settings"]
@@ -170,7 +177,8 @@ def test_all_cli_options_reach_settings(monkeypatch: pytest.MonkeyPatch, tmp_pat
     assert settings.concurrency == 7
     assert settings.max_urls == 5
     assert settings.download_root == download_dir.resolve()
-    assert settings.verbose is True
+    assert settings.log_level == "debug"
+    assert settings.keep_downloads is True
 
 
 # --- environment variables ---------------------------------------------------
@@ -185,6 +193,8 @@ def test_env_vars_set_options(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -
             "CRAWL4SERVER_LOADER_PORT": "9500",
             "CRAWL4SERVER_LOADER_API_KEY": "env-key",
             "CRAWL4SERVER_CONCURRENCY": "9",
+            "CRAWL4SERVER_LOG_LEVEL": "error",
+            "CRAWL4SERVER_KEEP_DOWNLOADS": "true",
         },
     )
     assert result.exit_code == 0, result.output
@@ -192,6 +202,9 @@ def test_env_vars_set_options(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -
     assert call["loader_port"] == 9500
     assert call["loader"].api_key == "env-key"
     assert call["settings"].concurrency == 9
+    assert call["log_level"] == "error"
+    assert call["settings"].log_level == "error"
+    assert call["settings"].keep_downloads is True
 
 
 # --- config file --------------------------------------------------------------
@@ -202,12 +215,16 @@ def test_config_file_yaml_sets_options(monkeypatch: pytest.MonkeyPatch, tmp_path
     recorder = install(monkeypatch)
     config = tmp_path / "config.yaml"
     config.write_text(
-        "loader_port: 9100\nmcp_port: 9200\nmax_urls: 42\nconcurrency: 4\n",
+        "loader_port: 9100\nmcp_port: 9200\nmax_urls: 42\nconcurrency: 4\n"
+        "log_level: debug\nkeep_downloads: true\n",
         encoding="utf-8",
     )
     result = invoke(["--config", str(config)])
     assert result.exit_code == 0, result.output
     call = recorder.calls[0]
+    assert call["log_level"] == "debug"
+    assert call["settings"].log_level == "debug"
+    assert call["settings"].keep_downloads is True
     assert call["loader_port"] == 9100
     assert call["mcp_port"] == 9200
     assert call["settings"].max_urls == 42
@@ -230,16 +247,62 @@ def test_precedence_cli_over_env_over_config(
     monkeypatch.chdir(tmp_path)
     recorder = install(monkeypatch)
     config = tmp_path / "config.yaml"
-    config.write_text("concurrency: 2\nmax_urls: 10\nloader_port: 8800\n", encoding="utf-8")
+    config.write_text(
+        "concurrency: 2\nmax_urls: 10\nloader_port: 8800\nlog_level: debug\n",
+        encoding="utf-8",
+    )
     result = invoke(
         ["--config", str(config), "--concurrency", "9"],
-        env={"CRAWL4SERVER_MAX_URLS": "77", "CRAWL4SERVER_LOADER_PORT": "8900"},
+        env={
+            "CRAWL4SERVER_MAX_URLS": "77",
+            "CRAWL4SERVER_LOADER_PORT": "8900",
+            "CRAWL4SERVER_LOG_LEVEL": "error",
+        },
     )
     assert result.exit_code == 0, result.output
     call = recorder.calls[0]
     assert call["settings"].concurrency == 9  # CLI beats config
     assert call["settings"].max_urls == 77  # env beats config
     assert call["loader_port"] == 8900  # env beats config
+    assert call["log_level"] == "error"  # env beats config
+
+
+@pytest.mark.parametrize(
+    ("args", "env", "config"),
+    [
+        (["--log-level", "verbose"], {}, None),
+        ([], {"CRAWL4SERVER_LOG_LEVEL": "warning"}, None),
+        ([], {}, "log_level: warning\n"),
+    ],
+    ids=["option", "variable", "config"],
+)
+def test_unsupported_log_level_exits_2(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    args: list[str],
+    env: dict[str, str],
+    config: str | None,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    recorder = install(monkeypatch)
+    if config is not None:
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(config, encoding="utf-8")
+        args = ["--config", str(config_file), *args]
+    result = invoke(args, env=env)
+    assert result.exit_code == 2
+    assert "Invalid value for '--log-level'" in result.stderr
+    assert recorder.calls == []
+
+
+def test_log_level_reaches_setup_logging(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.chdir(tmp_path)
+    install(monkeypatch)
+    levels: list[str] = []
+    monkeypatch.setattr(server_main, "setup_logging", levels.append)
+    result = invoke(["--log-level", "error"])
+    assert result.exit_code == 0, result.output
+    assert levels == ["error"]
 
 
 def test_config_unknown_key_exit_2_lists_allowed_keys(
@@ -350,11 +413,11 @@ def test_serving_lines_use_on_started_ports_and_stdout_is_empty(
     install(monkeypatch, ports={"loader": 40001, "mcp": 40002})
     result = invoke(["--loader-path", "/crawl", "--mcp-path", "/mcp"])
     assert result.exit_code == 0, result.output
-    assert (
-        "crawl4server: serving Open WebUI web loader on http://127.0.0.1:40001/crawl"
-        in result.stderr
-    )
-    assert "crawl4server: serving MCP on http://127.0.0.1:40002/mcp" in result.stderr
+    assert result.stderr.splitlines() == [
+        version_line(),
+        "crawl4server: serving Open WebUI web loader on http://127.0.0.1:40001/crawl",
+        "crawl4server: serving MCP on http://127.0.0.1:40002/mcp",
+    ]
     assert result.stdout == ""
 
 
@@ -501,6 +564,7 @@ def test_japanese_warnings_and_serving_lines_keep_the_english_prefixes(
     result = invoke(["--lang", "ja", "--host", "0.0.0.0"])
     assert result.exit_code == 0, result.output
     assert result.stderr.splitlines() == [
+        version_line(),
         "crawl4server: warning: MCP エンドポイントはループバック以外のホストで認証なしになって"
         "います。接続できる人は誰でもこのサーバーを使えます",
         "crawl4server: warning: web loader も認証なしです。認証を必須にするには "
@@ -545,6 +609,8 @@ def test_japanese_help_shows_translated_texts() -> None:
         "MCP の Streamable HTTP ポートです。",
         "MCP エンドポイントを提供する HTTP パスです。",
         "MCP の download ツールがファイルを保存するルートディレクトリです。",
+        "ログレベルです。debug(すべて)、info(取得、警告、エラー)、error(警告とエラーのみ)"
+        "のいずれかです。",
         "YAML または JSON の設定ファイルです。コマンドラインのオプションと CRAWL4SERVER_* "
         "環境変数が優先されます。",
         "メッセージの言語(en または ja)です。",

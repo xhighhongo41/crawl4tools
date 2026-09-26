@@ -141,7 +141,8 @@ Open WebUI はこのURLに `{"urls": [...]}` をPOSTし、`{"page_content": <Mar
 | `-j, --concurrency N` | `CRAWL4SERVER_CONCURRENCY` | `concurrency` | `3` | 両ポートを通じて同時に取得するURL数の上限 |
 | `--max-urls N` | `CRAWL4SERVER_MAX_URLS` | `max_urls` | `20` | 1回のWeb loaderリクエストまたはMCPツール呼び出しで受け付けるURL数の上限。Open WebUI は最大20件を送るため、20以上に保つ |
 | `--download-dir DIR` | `CRAWL4SERVER_DOWNLOAD_DIR` | `download_dir` | `.` | MCPの `download` ツールの保存先ルートディレクトリ |
-| `-v, --verbose` | `CRAWL4SERVER_VERBOSE` | `verbose` | 無効 | 標準エラーへの詳細ログ出力 |
+| `--log-level LEVEL` | `CRAWL4SERVER_LOG_LEVEL` | `log_level` | `info` | 標準エラーへのログレベル: `debug`(crawl4ai と uvicorn のアクセスログを含むすべて)、`info`(各取得、警告、エラー)、`error`(警告とエラーのみ) |
+| `--keep-downloads` | `CRAWL4SERVER_KEEP_DOWNLOADS` | `keep_downloads` | 無効 | MCPの `download` ツールが保存したファイルを、クライアントが `file_url` から取得した後もサーバーに残す(既定では取得後にサーバー側のコピーを削除する) |
 | `--lang en\|ja` | `CRAWL4SERVER_LANG` | `lang` | `en` | サーバーが動作中に出力するメッセージの言語([メッセージの言語](#メッセージの言語)を参照) |
 | `--config FILE` | `CRAWL4SERVER_CONFIG` | — | *(なし)* | YAMLまたはJSONの設定ファイル(下記の[設定](#設定)を参照) |
 
@@ -320,7 +321,8 @@ HTTP(`--transport http` または `crawl4server`)経由の場合、`download` �
 | `-j, --concurrency N` | `CRAWL4MCP_CONCURRENCY` | `concurrency` | `3` | 全ツール呼び出しを通じて同時に取得するURL数の上限 |
 | `--max-urls N` | `CRAWL4MCP_MAX_URLS` | `max_urls` | `20` | 1回の呼び出しで受け付けるURL数の上限 |
 | `--download-dir DIR` | `CRAWL4MCP_DOWNLOAD_DIR` | `download_dir` | `.` | `download` ツールの保存先ルートディレクトリ |
-| `-v, --verbose` | `CRAWL4MCP_VERBOSE` | `verbose` | 無効 | 標準エラーへの詳細ログ出力 |
+| `--log-level LEVEL` | `CRAWL4MCP_LOG_LEVEL` | `log_level` | `info` | 標準エラーへのログレベル: `debug`(crawl4ai と uvicorn のアクセスログを含むすべて)、`info`(各取得、警告、エラー)、`error`(警告とエラーのみ) |
+| `--keep-downloads` | `CRAWL4MCP_KEEP_DOWNLOADS` | `keep_downloads` | 無効 | `download` ツールが保存したファイルを、クライアントが `file_url` から取得した後もサーバーに残す(既定では取得後にサーバー側のコピーを削除する) |
 | `--lang en\|ja` | `CRAWL4MCP_LANG` | `lang` | `en` | サーバーが動作中に出力するメッセージの言語([メッセージの言語](#メッセージの言語)を参照) |
 | `--config FILE` | `CRAWL4MCP_CONFIG` | — | *(なし)* | YAMLまたはJSONの設定ファイル(下記の[設定](#設定-1)を参照) |
 
