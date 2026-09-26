@@ -158,6 +158,7 @@ mcp_port: 8765
 max_urls: 20
 concurrency: 3
 lang: ja
+log_level: info
 ```
 
 The same file as JSON:
@@ -170,7 +171,8 @@ The same file as JSON:
   "mcp_port": 8765,
   "max_urls": 20,
   "concurrency": 3,
-  "lang": "ja"
+  "lang": "ja",
+  "log_level": "info"
 }
 ```
 
@@ -185,6 +187,8 @@ mkdir -p downloads
 docker compose up -d
 curl http://localhost:8766/health
 ```
+
+Check `docker logs <container>` and its first line reports the running version (e.g. `crawl4server 1.0.0b3 (crawl4ai 0.9.4, mcp 2.2.0, starlette 1.7.0)`).
 
 Without compose, the same image can be pulled directly: `docker pull xhighhongo41/crawl4tools:1.0.0b3`. Beta versions are not tagged `latest`, so always use the version tag. To build the image locally instead of pulling it, run `docker build -t xhighhongo41/crawl4tools:1.0.0b3 .` and then `docker compose up -d`.
 
@@ -227,6 +231,8 @@ services:
       # CRAWL4SERVER_MAX_URLS: "20"
       # CRAWL4SERVER_TIMEOUT: "60"
       # CRAWL4SERVER_LANG: ja
+      # CRAWL4SERVER_LOG_LEVEL: debug
+      # CRAWL4SERVER_KEEP_DOWNLOADS: "true"
     volumes:
       # Host directory for downloaded/converted output; create it first
       # (mkdir -p downloads) and make sure uid 1000 can write to it.
@@ -301,7 +307,7 @@ Other clients that support the Streamable HTTP transport (for example Open WebUI
 
 When a call covers several URLs, each result starts with a `<!-- crawl4tools: url=... status=... -->` line; a URL that failed is reported as an `error: ...` line instead, and the call only fails when every URL fails. A proxy fallback or other remark about a result appears as a `<!-- note: ... -->` line. `download` overwrites files that already exist at the destination.
 
-Over HTTP (`--transport http` or `crawl4server`), each file `download` saves also gets a `file_url`, served at `/files/<token>` on the same port; fetch it to your own machine with, for example, `curl -o <name> <file_url>` — its content never passes through the conversation. Over stdio, the server runs on the same machine as the client, so the returned path can be used as is. A `file_url` stops working once the server restarts (the token is forgotten), though the file itself is left in place.
+Over HTTP (`--transport http` or `crawl4server`), each file `download` saves also gets a `file_url`, served at `/files/<token>` on the same port; fetch it to your own machine with, for example, `curl -o <name> <file_url>` — its content never passes through the conversation. Over stdio, the server runs on the same machine as the client, so the returned path can be used as is. Once a client has fetched a `file_url` all the way through (not just a `HEAD` request or a partial `Range` request), the server deletes its own copy of the file and forgets the token, so each `file_url` works only once; pass `--keep-downloads` to keep both the file and the token available for repeat fetches, as in versions before 1.0.0b3. A `file_url` also stops working once the server restarts (the token is forgotten either way), though with `--keep-downloads` the file itself is left in place. Over stdio there is no `/files` endpoint, so nothing is ever deleted; the returned path is the only copy.
 
 `fetch`'s structured result also carries the page text at `pages[i].text`, alongside the same text in the `content` block; a client that reads `structuredContent` instead of `content` (Claude Code does) still gets it. Claude Code moves an MCP result to a file once it is larger than 25,000 tokens (`MAX_MCP_OUTPUT_TOKENS`); for a long page, `download` avoids that round trip.
 
@@ -339,6 +345,7 @@ concurrency: 5
 download_dir: ./downloads
 proxy: http://proxy.local:8080
 lang: ja
+log_level: info
 ```
 
 The same file as JSON:
@@ -352,15 +359,16 @@ The same file as JSON:
   "concurrency": 5,
   "download_dir": "./downloads",
   "proxy": "http://proxy.local:8080",
-  "lang": "ja"
+  "lang": "ja",
+  "log_level": "info"
 }
 ```
 
 ### Security
 
-The Streamable HTTP transport has no authentication. By default the server listens on `127.0.0.1` only; if you bind it to another host, anyone who can reach that port can use the server, and `crawl4mcp` prints a warning to stderr when it starts. In stdio mode, stdout is reserved for the MCP protocol — all logging goes to stderr.
+The Streamable HTTP transport has no authentication. By default the server listens on `127.0.0.1` only; if you bind it to another host, anyone who can reach that port can use the server, and `crawl4mcp` prints a warning to stderr when it starts. In stdio mode, stdout is reserved for the MCP protocol — all logging goes to stderr, at the level set by `--log-level` (`info` by default, one line per fetch plus warnings and errors).
 
-`/files/<token>` (see [Tools](#tools) above) serves the files `download` has saved, on the same port as MCP. The token is an unguessable random value, but the port itself still has no authentication — do not expose the MCP port beyond a trusted network.
+`/files/<token>` (see [Tools](#tools) above) serves the files `download` has saved, on the same port as MCP. The token is an unguessable random value, but the port itself still has no authentication — do not expose the MCP port beyond a trusted network. By default a file is deleted from the server as soon as a client has fetched it in full from its `file_url`; pass `--keep-downloads` to leave both the file and the token in place instead.
 
 ## Language of messages
 

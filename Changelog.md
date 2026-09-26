@@ -8,6 +8,18 @@ Pre-release versions are written in PEP 440 form (for example 1.0.0b1).
 
 ## [Unreleased]
 
+### Added
+
+- `--log-level debug|info|error` for crawl4mcp / crawl4server (`CRAWL4MCP_LOG_LEVEL` / `CRAWL4SERVER_LOG_LEVEL`, config key `log_level`); the servers print their version as the first line on stderr at startup; at the default `info` level the servers log each fetched URL and each saved file; `--keep-downloads`; PyPI keywords and classifiers, GitHub topics, and the Docker Hub repository description updated on each release
+
+### Changed
+
+- `-v/--verbose` of crawl4mcp / crawl4server is replaced by `--log-level debug` (the `verbose` config key is no longer accepted); over HTTP the `download` tool's files are deleted from the server once a client has fetched them from their `file_url` (use `--keep-downloads` to keep them)
+
+### Fixed
+
+- Images and other non-HTML files reached only through the browser (e.g. through a proxy that intercepts TLS) are saved as they were delivered instead of failing as `Blocked by anti-bot protection`
+
 ## [1.0.0b2] - 2026-09-26
 
 ### Added

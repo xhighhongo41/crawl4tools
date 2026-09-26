@@ -158,6 +158,7 @@ mcp_port: 8765
 max_urls: 20
 concurrency: 3
 lang: ja
+log_level: info
 ```
 
 同じ内容をJSONで書くと:
@@ -170,7 +171,8 @@ lang: ja
   "mcp_port": 8765,
   "max_urls": 20,
   "concurrency": 3,
-  "lang": "ja"
+  "lang": "ja",
+  "log_level": "info"
 }
 ```
 
@@ -185,6 +187,8 @@ mkdir -p downloads
 docker compose up -d
 curl http://localhost:8766/health
 ```
+
+`docker logs <container>` の最初の行には実行中のバージョンが表示されます(例: `crawl4server 1.0.0b3 (crawl4ai 0.9.4, mcp 2.2.0, starlette 1.7.0)`)。
 
 compose を使わずに同じイメージを直接取得することもできます: `docker pull xhighhongo41/crawl4tools:1.0.0b3`。ベータ版には `latest` タグが付かないため、必ずバージョンタグを指定してください。取得せずローカルでビルドする場合は、`docker build -t xhighhongo41/crawl4tools:1.0.0b3 .` を実行してから `docker compose up -d` してください。
 
@@ -227,6 +231,8 @@ services:
       # CRAWL4SERVER_MAX_URLS: "20"
       # CRAWL4SERVER_TIMEOUT: "60"
       # CRAWL4SERVER_LANG: ja
+      # CRAWL4SERVER_LOG_LEVEL: debug
+      # CRAWL4SERVER_KEEP_DOWNLOADS: "true"
     volumes:
       # Host directory for downloaded/converted output; create it first
       # (mkdir -p downloads) and make sure uid 1000 can write to it.
@@ -301,7 +307,7 @@ Streamable HTTP に対応する他のクライアント(例: Open WebUI の MCP�
 
 複数URLを指定した場合、各結果の先頭に `<!-- crawl4tools: url=... status=... -->` という行が付きます。失敗したURLは代わりに `error: ...` という行で報告され、呼び出し自体が失敗になるのは全URLが失敗したときだけです。プロキシのフォールバックなどの注記は `<!-- note: ... -->` という行で示されます。`download` は保存先に既存のファイルがあれば上書きします。
 
-HTTP(`--transport http` または `crawl4server`)経由の場合、`download` が保存した各ファイルには `file_url` も付き、同じポートの `/files/<token>` で配信されます。例えば `curl -o <name> <file_url>` で自分のマシンに保存でき、内容が会話を経由することはありません。stdio の場合はサーバーがクライアントと同じマシンで動くため、返されたパスをそのまま使えます。`file_url` はサーバーを再起動すると無効になります(トークンが失われるため)。ただしファイル自体は残ります。
+HTTP(`--transport http` または `crawl4server`)経由の場合、`download` が保存した各ファイルには `file_url` も付き、同じポートの `/files/<token>` で配信されます。例えば `curl -o <name> <file_url>` で自分のマシンに保存でき、内容が会話を経由することはありません。stdio の場合はサーバーがクライアントと同じマシンで動くため、返されたパスをそのまま使えます。クライアントが `file_url` の内容を最後まで取得し終えると(`HEAD` リクエストや `Range` 指定の部分取得は対象外)、サーバーは自分が持つそのファイルのコピーを削除しトークンを忘れるため、各 `file_url` は原則1回しか使えません。`--keep-downloads` を付けて起動すると、1.0.0b2 以前と同様にファイルとトークンの両方が取得後も残り、繰り返し取得できます。また `file_url` はサーバーを再起動しても無効になります(いずれの場合もトークンが失われるため)。ただし `--keep-downloads` のときはファイル自体は残ります。stdio には `/files` エンドポイントが無いため、ファイルが削除されることはなく、返されたパスがそのまま唯一の成果物です。
 
 `fetch` の構造化結果では、ページ本文が `pages[i].text` にも入っており、`content` ブロックの同じ本文と重複しています。`structuredContent` の方を見るクライアント(Claude Code はそうします)でも本文を取得できます。Claude Code は MCP の結果が 25,000 トークン(`MAX_MCP_OUTPUT_TOKENS`)を超えるとファイルに退避するため、長いページでは `download` を使うとこのやり取りを避けられます。
 
@@ -339,6 +345,7 @@ concurrency: 5
 download_dir: ./downloads
 proxy: http://proxy.local:8080
 lang: ja
+log_level: info
 ```
 
 同じ内容をJSONで書くと:
@@ -352,15 +359,16 @@ lang: ja
   "concurrency": 5,
   "download_dir": "./downloads",
   "proxy": "http://proxy.local:8080",
-  "lang": "ja"
+  "lang": "ja",
+  "log_level": "info"
 }
 ```
 
 ### セキュリティ
 
-Streamable HTTP トランスポートには認証機能がありません。既定ではサーバーは `127.0.0.1` のみで待ち受けますが、他のホストにバインドすると、そのポートに到達できる誰もがサーバーを利用できてしまいます。この場合 `crawl4mcp` は起動時に標準エラーへ警告を出力します。stdioモードでは標準出力はMCPプロトコル専用であり、ログはすべて標準エラーに出力されます。
+Streamable HTTP トランスポートには認証機能がありません。既定ではサーバーは `127.0.0.1` のみで待ち受けますが、他のホストにバインドすると、そのポートに到達できる誰もがサーバーを利用できてしまいます。この場合 `crawl4mcp` は起動時に標準エラーへ警告を出力します。stdioモードでは標準出力はMCPプロトコル専用であり、ログはすべて標準エラーに、`--log-level`(既定 `info`。1件取得するごとに1行、加えて警告・エラー)で決まるレベルで出力されます。
 
-`/files/<token>`(前述の[ツール](#ツール)を参照)は、`download` が保存したファイルを MCP と同じポートで配信します。トークンは推測できない乱数ですが、ポート自体には認証機能がないため、MCPポートを信頼できるネットワークの外に公開しないでください。
+`/files/<token>`(前述の[ツール](#ツール)を参照)は、`download` が保存したファイルを MCP と同じポートで配信します。トークンは推測できない乱数ですが、ポート自体には認証機能がないため、MCPポートを信頼できるネットワークの外に公開しないでください。既定では、クライアントがファイルを `file_url` から最後まで取得し終えた時点でサーバーはそのファイルを削除します。ファイルとトークンの両方を取得後も残したい場合は `--keep-downloads` を付けてください。
 
 ## メッセージの言語
 
