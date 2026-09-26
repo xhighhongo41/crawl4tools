@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -280,6 +281,33 @@ async def test_fetch_duplicates_fetched_once(tmp_path: Path) -> None:
     assert len(structured(result)["pages"]) == 1
 
 
+async def test_fetch_logs_one_line_per_url(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger="crawl4tools.server.mcp_server")
+    crawler = FakeCrawler({URL: make_result(status_code=404), URL2: make_result()})
+    server, _, _ = make_server(tmp_path, crawler=crawler)
+    await call(server, "fetch", {"urls": [URL, URL2]})
+    assert caplog.record_tuples == [
+        ("crawl4tools.server.mcp_server", logging.WARNING, f"error: HTTP 404 Not Found: {URL}"),
+        (
+            "crawl4tools.server.mcp_server",
+            logging.INFO,
+            f"fetched: {URL2} (HTTP 200, html, 7 chars)",
+        ),
+    ]
+
+
+async def test_fetch_logs_only_the_unique_url_once_for_duplicates(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger="crawl4tools.server.mcp_server")
+    server, _, _ = make_server(tmp_path)
+    await call(server, "fetch", {"urls": [URL, URL]})
+    fetched = [record for record in caplog.record_tuples if record[2].startswith("fetched:")]
+    assert len(fetched) == 1
+
+
 async def test_fetch_long_timeout_note(tmp_path: Path) -> None:
     server, crawler, _ = make_server(tmp_path, timeout_s=10)
     result = await call(server, "fetch", {"urls": [URL], "timeout_s": 101})
@@ -408,6 +436,30 @@ async def test_download_markdown(tmp_path: Path) -> None:
     assert lines == [f"saved: {URL} -> {path} (7 bytes)", "done: 1 saved, 0 failed"]
 
 
+async def test_download_logs_the_saved_file(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger="crawl4tools.server.mcp_server")
+    server, _, _ = make_server(tmp_path)
+    result = await call(server, "download", {"urls": [URL]})
+    path = tmp_path.resolve() / filename_for(URL, ".md")
+    assert not result.is_error
+    assert caplog.record_tuples == [
+        ("crawl4tools.server.mcp_server", logging.INFO, f"saved: {URL} -> {path} (7 bytes)")
+    ]
+
+
+async def test_download_logs_the_fetch_failure(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger="crawl4tools.server.mcp_server")
+    server, _, _ = make_server(tmp_path, crawler=FakeCrawler(make_result(status_code=404)))
+    await call(server, "download", {"urls": [URL]})
+    assert caplog.record_tuples == [
+        ("crawl4tools.server.mcp_server", logging.WARNING, f"error: HTTP 404 Not Found: {URL}")
+    ]
+
+
 async def test_download_into_subdirectory(tmp_path: Path) -> None:
     server, _, _ = make_server(tmp_path)
     result = await call(server, "download", {"urls": [URL], "directory": "sub/dir"})
@@ -479,6 +531,19 @@ async def test_download_write_failure(tmp_path: Path) -> None:
     assert record["path"] is None
     assert record["error"].startswith("could not write ")
     assert "error: could not write" in texts(result)[0]
+
+
+async def test_download_write_failure_is_logged(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger="crawl4tools.server.mcp_server")
+    (tmp_path / filename_for(URL, ".md")).mkdir()
+    server, _, _ = make_server(tmp_path)
+    await call(server, "download", {"urls": [URL]})
+    ((_, level, message),) = caplog.record_tuples
+    assert level == logging.WARNING
+    path = tmp_path.resolve() / filename_for(URL, ".md")
+    assert message.startswith(f"error: could not write {path}: ")
 
 
 async def test_download_directory_creation_failure(tmp_path: Path) -> None:

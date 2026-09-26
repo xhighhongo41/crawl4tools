@@ -58,6 +58,7 @@ from crawl4tools.server.results import (
     check_urls,
     download_lines,
     download_record,
+    log_outcome,
     page_blocks,
     page_meta,
     resolve_directory,
@@ -378,6 +379,7 @@ def build_server(
             content.append(TextContent(type="text", text="\n".join(notes)))
         multiple = len(unique) > 1
         for url, outcome in zip(unique, outcomes, strict=True):
+            log_outcome(logger, url, outcome)
             content.extend(page_blocks(outcome, url, t, multiple=multiple))
         return CallToolResult(
             content=content,
@@ -458,17 +460,21 @@ def build_server(
         records: list[dict[str, object]] = []
         for url, outcome in zip(unique, outcomes, strict=True):
             if not outcome.ok:
+                log_outcome(logger, url, outcome)
                 records.append(download_record(outcome, url, None, t))
                 continue
             path = allocator.allocate(filename_for(url, outcome.suggested_extension))
+            data = payload_bytes(outcome)
             try:
-                path.write_bytes(payload_bytes(outcome))
+                path.write_bytes(data)
             except OSError as exc:
                 error = t.gettext("could not write {path}: {reason}").format(
                     path=path, reason=exc.strerror
                 )
+                logger.warning("error: could not write %s: %s", path, exc.strerror)
                 records.append(download_record(outcome, url, None, t, error=error))
             else:
+                log_outcome(logger, url, outcome, path=path, size=len(data))
                 token = server_state.files.register(path)
                 file_url = f"{base}/files/{token}" if base else None
                 records.append(download_record(outcome, url, path, t, file_url=file_url))

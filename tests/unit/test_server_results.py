@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import base64
+import logging
 from pathlib import Path
 
 import pytest
 from mcp.types import ImageContent, TextContent
 
-from crawl4tools.engine.errors import HttpStatusError, NameResolutionError
+from crawl4tools.engine.errors import BrowserNotInstalledError, HttpStatusError, NameResolutionError
 from crawl4tools.engine.models import ContentKind, FetchOutcome, Note
 from crawl4tools.i18n import ENGLISH, LocalizedError, get_translator
 from crawl4tools.server.results import (
@@ -15,12 +16,15 @@ from crawl4tools.server.results import (
     check_urls,
     download_lines,
     download_record,
+    log_outcome,
     page_blocks,
     page_meta,
     resolve_directory,
 )
 
 JA = get_translator("ja")
+LOGGER_NAME = "crawl4tools.server.results.test"
+LOGGER = logging.getLogger(LOGGER_NAME)
 
 # --- check_urls -------------------------------------------------------------
 
@@ -782,3 +786,154 @@ def test_download_lines_error_fallback_in_japanese() -> None:
     outcome = FetchOutcome(url="https://bad.example/", ok=False, error=None)
     record = download_record(outcome, outcome.url, None, JA)
     assert download_lines(record, JA) == ["error: 取得に失敗しました: https://bad.example/"]
+
+
+# --- log_outcome ----------------------------------------------------------------
+
+
+def test_log_outcome_fetched_success_text(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO, logger=LOGGER_NAME)
+    outcome = _ok_text_outcome()
+    log_outcome(LOGGER, outcome.url, outcome)
+    assert caplog.record_tuples == [
+        (LOGGER_NAME, logging.INFO, "fetched: https://example.com/ (HTTP 200, html, 7 chars)")
+    ]
+
+
+def test_log_outcome_fetched_success_binary(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO, logger=LOGGER_NAME)
+    outcome = FetchOutcome(
+        url="https://example.com/x.bin",
+        ok=True,
+        status_code=200,
+        content_kind=ContentKind.BINARY,
+        content_type="application/octet-stream",
+        data=b"binarydata",
+    )
+    log_outcome(LOGGER, outcome.url, outcome)
+    assert caplog.record_tuples == [
+        (
+            LOGGER_NAME,
+            logging.INFO,
+            "fetched: https://example.com/x.bin (HTTP 200, binary, 10 bytes)",
+        )
+    ]
+
+
+def test_log_outcome_fetched_success_status_dash_when_missing(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger=LOGGER_NAME)
+    outcome = _ok_text_outcome(status_code=None)
+    log_outcome(LOGGER, outcome.url, outcome)
+    assert caplog.record_tuples == [
+        (LOGGER_NAME, logging.INFO, "fetched: https://example.com/ (HTTP -, html, 7 chars)")
+    ]
+
+
+def test_log_outcome_saved(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO, logger=LOGGER_NAME)
+    outcome = _ok_text_outcome()
+    path = Path("/downloads/example.md")
+    log_outcome(LOGGER, outcome.url, outcome, path=path)
+    assert caplog.record_tuples == [
+        (
+            LOGGER_NAME,
+            logging.INFO,
+            "saved: https://example.com/ -> /downloads/example.md (7 bytes)",
+        )
+    ]
+
+
+def test_log_outcome_saved_with_explicit_size(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO, logger=LOGGER_NAME)
+    outcome = _ok_text_outcome()
+    path = Path("/downloads/example.md")
+    log_outcome(LOGGER, outcome.url, outcome, path=path, size=123)
+    assert caplog.record_tuples == [
+        (
+            LOGGER_NAME,
+            logging.INFO,
+            "saved: https://example.com/ -> /downloads/example.md (123 bytes)",
+        )
+    ]
+
+
+def test_log_outcome_failure_logs_a_warning_with_the_url(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger=LOGGER_NAME)
+    outcome = FetchOutcome(
+        url="https://bad.example/",
+        ok=False,
+        error=HttpStatusError("https://bad.example/", 404),
+    )
+    log_outcome(LOGGER, outcome.url, outcome)
+    assert caplog.record_tuples == [
+        (LOGGER_NAME, logging.WARNING, "error: HTTP 404 Not Found: https://bad.example/")
+    ]
+
+
+def test_log_outcome_failure_appends_the_url_when_the_error_omits_it(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger=LOGGER_NAME)
+    outcome = FetchOutcome(
+        url="https://bad.example/",
+        ok=False,
+        error=BrowserNotInstalledError("https://bad.example/"),
+    )
+    log_outcome(LOGGER, outcome.url, outcome)
+    ((_, level, message),) = caplog.record_tuples
+    assert level == logging.WARNING
+    assert message.count("https://bad.example/") == 1
+    assert message.endswith(": https://bad.example/")
+
+
+def test_log_outcome_failure_without_error_object(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO, logger=LOGGER_NAME)
+    outcome = FetchOutcome(url="https://bad.example/", ok=False, error=None)
+    log_outcome(LOGGER, outcome.url, outcome)
+    assert caplog.record_tuples == [
+        (LOGGER_NAME, logging.WARNING, "error: fetch failed: https://bad.example/")
+    ]
+
+
+def test_log_outcome_suppresses_the_error_line_when_log_errors_false(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger=LOGGER_NAME)
+    outcome = FetchOutcome(
+        url="https://bad.example/",
+        ok=False,
+        error=HttpStatusError("https://bad.example/", 404),
+        notes=[Note("a note")],
+    )
+    log_outcome(LOGGER, outcome.url, outcome, log_errors=False)
+    assert caplog.record_tuples == [
+        (LOGGER_NAME, logging.INFO, "note: a note: https://bad.example/")
+    ]
+
+
+def test_log_outcome_notes_logged_on_success(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO, logger=LOGGER_NAME)
+    outcome = _ok_text_outcome(notes=[Note("note one"), Note("note two")])
+    log_outcome(LOGGER, outcome.url, outcome)
+    assert caplog.record_tuples[1:] == [
+        (LOGGER_NAME, logging.INFO, "note: note one: https://example.com/"),
+        (LOGGER_NAME, logging.INFO, "note: note two: https://example.com/"),
+    ]
+
+
+def test_log_outcome_notes_logged_on_failure(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO, logger=LOGGER_NAME)
+    outcome = FetchOutcome(
+        url="https://bad.example/",
+        ok=False,
+        error=HttpStatusError("https://bad.example/", 404),
+        notes=[Note("a note")],
+    )
+    log_outcome(LOGGER, outcome.url, outcome)
+    assert caplog.record_tuples[1:] == [
+        (LOGGER_NAME, logging.INFO, "note: a note: https://bad.example/")
+    ]

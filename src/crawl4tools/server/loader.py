@@ -38,7 +38,7 @@ from crawl4tools.engine.models import FetchOutcome, OutputFormat
 from crawl4tools.engine.naming import dedupe_urls, validate_url
 from crawl4tools.i18n import N_, LocalizedError, render_exception
 from crawl4tools.server.mcp_server import ServerState, fetch_all
-from crawl4tools.server.results import UrlsError
+from crawl4tools.server.results import UrlsError, log_outcome
 
 logger = logging.getLogger(__name__)
 
@@ -169,13 +169,20 @@ async def _parse(request: Request) -> CrawlRequest:
 
 
 def _log_skipped(outcome: FetchOutcome, url: str) -> None:
-    """Log (always in English) why the fetch of *url* produced no document."""
+    """Log (always in English) why the fetch of *url* produced no document.
+
+    The failure/no-text WARNING keeps its own wording (existing clients and
+    tests match on it); :func:`~crawl4tools.server.results.log_outcome`
+    only adds the ``note: ...`` lines, with ``log_errors=False`` so it does
+    not log a second, differently worded ``error:`` line for the same URL.
+    """
     if outcome.ok:
         logger.warning("error: no text content: %s", url)
     elif outcome.error is not None:
         logger.warning("error: %s", outcome.error)
     else:
         logger.warning("error: fetch failed: %s", url)
+    log_outcome(logger, url, outcome, log_errors=False)
 
 
 def build_loader_app(state: ServerState, loader: LoaderSettings) -> Starlette:
@@ -213,6 +220,7 @@ def build_loader_app(state: ServerState, loader: LoaderSettings) -> Starlette:
             if document is None:
                 _log_skipped(outcome, url)
             else:
+                log_outcome(logger, url, outcome)
                 documents.append(document)
         return JSONResponse(documents)
 
