@@ -8,6 +8,8 @@ Pre-release versions are written in PEP 440 form (for example 1.0.0b1).
 
 ## [Unreleased]
 
+## [1.0.0b3] - 2026-09-26
+
 ### Added
 
 - `--log-level debug|info|error` for crawl4mcp / crawl4server (`CRAWL4MCP_LOG_LEVEL` / `CRAWL4SERVER_LOG_LEVEL`, config key `log_level`); the servers print their version as the first line on stderr at startup; at the default `info` level the servers log each fetched URL and each saved file; `--keep-downloads`; PyPI keywords and classifiers, GitHub topics, and the Docker Hub repository description updated on each release
@@ -112,7 +114,8 @@ Pre-release versions are written in PEP 440 form (for example 1.0.0b1).
 
 No code is included in this release.
 
-[Unreleased]: https://github.com/xhighhongo41/crawl4tools/compare/v1.0.0b2...HEAD
+[Unreleased]: https://github.com/xhighhongo41/crawl4tools/compare/v1.0.0b3...HEAD
+[1.0.0b3]: https://github.com/xhighhongo41/crawl4tools/compare/v1.0.0b2...v1.0.0b3
 [1.0.0b2]: https://github.com/xhighhongo41/crawl4tools/compare/v1.0.0b1...v1.0.0b2
 [1.0.0b1]: https://github.com/xhighhongo41/crawl4tools/compare/v0.4.0...v1.0.0b1
 [0.4.0]: https://github.com/xhighhongo41/crawl4tools/compare/v0.3.0...v0.4.0
