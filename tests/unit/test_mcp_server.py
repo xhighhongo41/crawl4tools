@@ -552,11 +552,38 @@ async def test_download_over_http_returns_a_file_url(
             f"saved: {URL} -> {path} (7 bytes)",
             f"file: {file_url}",
         ]
+        assert path.read_bytes() == b"# Hello"
         # Fetch the file back through the same app, whatever the public base URL.
-        response = await http.get(file_url.replace(base, "http://testserver", 1))
+        local_url = file_url.replace(base, "http://testserver", 1)
+        response = await http.get(local_url)
+        # Once fetched, the server's copy is deleted and the URL is gone.
+        assert not path.exists()
+        again = await http.get(local_url)
     assert response.status_code == 200
-    assert response.content == path.read_bytes() == b"# Hello"
+    assert response.content == b"# Hello"
     assert filename_for(URL, ".md") in response.headers["content-disposition"]
+    assert again.status_code == 404
+
+
+async def test_download_over_http_keeps_the_files_with_keep_downloads(tmp_path: Path) -> None:
+    server, _, _ = make_server(tmp_path, keep_downloads=True)
+    app = server.streamable_http_app(host="testserver")
+    async with (
+        server.session_manager.run(),
+        httpx2.AsyncClient(
+            transport=httpx2.ASGITransport(app=app), base_url="http://testserver"
+        ) as http,
+    ):
+        async with Client(
+            streamable_http_client("http://testserver/mcp", http_client=http)
+        ) as client:
+            result = await client.call_tool("download", {"urls": [URL]})
+        file_url = structured(result)["files"][0]["file_url"]
+        assert isinstance(file_url, str)
+        responses = [await http.get(file_url) for _ in range(2)]
+    assert [response.status_code for response in responses] == [200, 200]
+    assert [response.content for response in responses] == [b"# Hello", b"# Hello"]
+    assert (tmp_path / filename_for(URL, ".md")).read_bytes() == b"# Hello"
 
 
 # --- shared state (open_state / build_server(state=) / fetch_all) ----------------
@@ -704,7 +731,10 @@ EN_DESCRIPTIONS = {
         "file was saved. When the server is reached over HTTP, each saved file also has a "
         "`file_url`; fetch it (for example `curl -o <name> <file_url>`) to save the file "
         "on your own machine without passing its content through the conversation. Over "
-        "stdio the server runs on your machine, so the returned paths are local."
+        "stdio the server runs on your machine, so the returned paths are local. When the "
+        "server is used over HTTP, it deletes its own copy of a file once a client has "
+        "fetched it from its `file_url` (unless the server was started with "
+        "`--keep-downloads`); over stdio the files stay where the returned paths say."
     ),
 }
 EN_PARAMETERS = {
@@ -744,6 +774,8 @@ EN_INSTRUCTIONS_7 = (
     "source) into a directory on the server and returns their paths. "
     "Over HTTP, `download` also returns a `file_url` per file to fetch it from the "
     "server (e.g. with curl). "
+    "The server deletes its copy of a file once it has been fetched from its "
+    "`file_url` (unless the server was started with `--keep-downloads`). "
     "PDFs are transcribed to Markdown. Duplicate URLs are fetched once. "
     "At most 7 URLs per call."
 )
@@ -767,7 +799,10 @@ JA_DESCRIPTIONS = {
         "ときだけです。サーバーに HTTP で接続しているときは、保存した各ファイルに `file_url` "
         "も付きます。これを取得すると(例: `curl -o <name> <file_url>`)、内容を会話に通さずに"
         "手元のマシンにファイルを保存できます。stdio ではサーバーが手元のマシンで動いているので、"
-        "返されるパスはローカルのパスです。"
+        "返されるパスはローカルのパスです。サーバーに HTTP で接続しているときは、クライアントが "
+        "`file_url` からファイルを取得し終えるとサーバー側のコピーを削除します(サーバーを "
+        "`--keep-downloads` で起動した場合を除きます)。stdio では返されたパスの場所にファイルが"
+        "残ります。"
     ),
 }
 JA_PARAMETERS = {
@@ -809,6 +844,8 @@ JA_INSTRUCTIONS_7 = (
     "MHTML、元のソースを含む)のファイルをサーバー上のディレクトリに保存し、そのパスを返します。"
     "HTTP 接続では、`download` はファイルごとにサーバーから取得するための `file_url` も返します"
     "(curl などで取得できます)。"
+    "`file_url` から取得し終えたファイルは、サーバーを `--keep-downloads` で起動した場合を"
+    "除き、サーバー側から削除します。"
     "PDF は Markdown に書き起こします。重複した URL は 1 回だけ取得します。1 回の呼び出しで"
     "指定できる URL は最大 7 件です。"
 )

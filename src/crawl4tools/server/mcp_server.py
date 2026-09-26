@@ -14,7 +14,8 @@ and call :func:`fetch_all` with it directly.
 The files saved by ``download`` are registered in the state's
 :class:`~crawl4tools.server.files.FileRegistry`, and the server's HTTP app
 serves them at ``/files/{token}``: over HTTP, each saved file comes with a
-``file_url`` the client can fetch it from.
+``file_url`` the client can fetch it from, and the server deletes the file
+once it has been fetched whole (unless ``settings.keep_downloads``).
 
 Every text the server shows its clients (the instructions, the tool titles
 and descriptions, the parameter descriptions, notes and errors) is in the
@@ -151,6 +152,8 @@ def _instructions(settings: ServerSettings, t: Translator) -> str:
         "source) into a directory on the server and returns their paths. "
         "Over HTTP, `download` also returns a `file_url` per file to fetch it from the "
         "server (e.g. with curl). "
+        "The server deletes its copy of a file once it has been fetched from its "
+        "`file_url` (unless the server was started with `--keep-downloads`). "
         "PDFs are transcribed to Markdown. Duplicate URLs are fetched once. "
         "At most {max_urls} URLs per call."
     ).format(max_urls=settings.max_urls)
@@ -300,7 +303,8 @@ def build_server(
     The server's HTTP app serves the saved files at ``GET /files/{token}``
     from the :class:`FileRegistry` of *state*, or, without *state*, from
     one registry created here and shared by every lifespan (an HTTP server
-    runs one per session).
+    runs one per session). A file fetched whole from there is deleted from
+    the server, unless ``settings.keep_downloads``.
 
     The texts sent to the clients are translated by ``settings.translator``
     once, when the server is built.
@@ -328,7 +332,9 @@ def build_server(
         lifespan=lifespan,
         log_level="INFO" if settings.log_level == "debug" else "WARNING",
     )
-    server.custom_route(FILES_PATH, methods=["GET"])(files_route(registry, t))
+    server.custom_route(FILES_PATH, methods=["GET"])(
+        files_route(registry, t, keep=settings.keep_downloads)
+    )
 
     @server.tool(
         name="fetch",
@@ -394,7 +400,10 @@ def build_server(
             "file was saved. When the server is reached over HTTP, each saved file also has a "
             "`file_url`; fetch it (for example `curl -o <name> <file_url>`) to save the file "
             "on your own machine without passing its content through the conversation. Over "
-            "stdio the server runs on your machine, so the returned paths are local."
+            "stdio the server runs on your machine, so the returned paths are local. When the "
+            "server is used over HTTP, it deletes its own copy of a file once a client has "
+            "fetched it from its `file_url` (unless the server was started with "
+            "`--keep-downloads`); over stdio the files stay where the returned paths say."
         ),
         annotations=ToolAnnotations(
             read_only_hint=False,

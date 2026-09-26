@@ -169,9 +169,18 @@ async def test_http_download_returns_a_file_url(http_server: str, tmp_path: Path
     file_url = record["file_url"]
     assert file_url.startswith(http_server.removesuffix("/mcp") + "/files/")
     assert f"file: {file_url}" in _text(result)
-    response = httpx.get(file_url, timeout=30)
-    assert response.status_code == 200
     saved = Path(record["path"])
     assert saved.parent == tmp_path.resolve()
-    assert response.content == saved.read_bytes()
+    content = saved.read_bytes()
+    response = httpx.get(file_url, timeout=30)
+    assert response.status_code == 200
+    assert response.content == content
     assert b"Example Domain" in response.content
+    # Once fetched to the end, the server deletes its copy and forgets the URL. It
+    # does so once the response is over, which the client may not wait for: it has
+    # every byte as soon as the Content-Length is reached. Give the server a moment.
+    deadline = time.monotonic() + 5
+    while saved.exists() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert not saved.exists()
+    assert httpx.get(file_url, timeout=30).status_code == 404
